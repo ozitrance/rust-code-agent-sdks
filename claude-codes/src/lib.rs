@@ -78,7 +78,7 @@
 //! ⚠️ **Important**: The Claude CLI protocol is unstable and evolving. This crate
 //! automatically checks your Claude CLI version and warns if it's newer than tested.
 //!
-//! Current tested version: **2.1.205**
+//! Current tested version: **2.1.220**
 //!
 //! Report compatibility issues at: <https://github.com/meawoppl/rust-claude-codes/pulls>
 //!
@@ -146,32 +146,34 @@ pub use io::{
     ControlResponse, ControlResponseMessage, ControlResponsePayload, GetUsageResponse,
     HookCallbackRequest, InitializeRequest, McpMessageRequest, ModelScopedRateLimit, Permission,
     PermissionBehavior, PermissionDenial, PermissionDestination, PermissionModeName,
-    PermissionResult, PermissionRule, PermissionSuggestion, PermissionType,
-    SDKControlInterruptRequest, ToolCaller, ToolPermissionRequest, ToolUseBlock, UsageBehavior,
-    UsageBehaviors, UsageModelUsage, UsageRateLimitWindow, UsageRateLimits, UsageSession,
+    PermissionResult, PermissionRule, PermissionSuggestion, PermissionType, ToolCaller,
+    ToolPermissionRequest, ToolUseBlock, UsageBehavior, UsageBehaviors, UsageModelUsage,
+    UsageRateLimitWindow, UsageRateLimits, UsageSession,
 };
 
 // System message and assistant message types
 pub use io::{
     ApiKeySource, ApiRetryMessage, AssistantErrorKind, BackgroundTaskInfo,
-    BackgroundTasksChangedMessage, CommandInfo, CommandsChangedMessage, CompactBoundaryMessage,
-    CompactMetadata, CompactionTrigger, ControlRequestProgressMessage, ElicitationCompleteMessage,
-    FailedPersistedFile, FilesPersistedMessage, HookProgressMessage, HookResponseMessage,
-    HookStartedMessage, InformationalMessage, InitMessage, InitPermissionMode, KnownSystemEvent,
-    LocalCommandOutputMessage, McpMeta, MemoryPaths, MemoryRecallItem, MemoryRecallMessage,
-    MessageOrigin, MessageRole, MirrorErrorKey, MirrorErrorMessage, ModelRefusalFallbackMessage,
-    ModelRefusalNoFallbackMessage, NotificationMessage, OutputStyle, PermissionDeniedMessage,
-    PersistedFile, PluginDiagnostic, PluginInfo, PluginInstallMessage, PreservedMessages,
-    PreservedSegment, StatusMessage, StatusMessageStatus, StopReason, SummarizeMetadata,
-    SystemMessage, SystemSubtype, TaskNotificationMessage, TaskPatch, TaskProgressMessage,
-    TaskStartedMessage, TaskStatus, TaskType, TaskUpdatedMessage, TaskUsage, ThinkingTokensMessage,
-    ToolUseMeta, WorkerShuttingDownMessage,
+    BackgroundTasksChangedMessage, CodeChangePublishedMessage, CommandInfo, CommandsChangedMessage,
+    CompactBoundaryMessage, CompactMetadata, CompactionTrigger, ControlRequestProgressMessage,
+    ElicitationCompleteMessage, FailedPersistedFile, FilesPersistedMessage, HookProgressMessage,
+    HookResponseMessage, HookStartedMessage, InformationalMessage, InitMessage, InitPermissionMode,
+    KnownSystemEvent, LocalCommandOutputMessage, McpMeta, McpServerError, MemoryPaths,
+    MemoryRecallItem, MemoryRecallMessage, MessageOrigin, MessageRole, MirrorErrorKey,
+    MirrorErrorMessage, ModelRefusalFallbackMessage, ModelRefusalNoFallbackMessage,
+    NotificationMessage, OutputStyle, PermissionDeniedMessage, PersistedFile, PluginDiagnostic,
+    PluginInfo, PluginInstallMessage, PreservedMessages, PreservedSegment, StatusMessage,
+    StatusMessageStatus, StopReason, SummarizeMetadata, SystemMessage, SystemSubtype,
+    TaskNotificationMessage, TaskPatch, TaskProgressMessage, TaskStartedMessage, TaskStatus,
+    TaskType, TaskUpdatedMessage, TaskUsage, ThinkingTokensMessage, ToolResultMeta, ToolUseMeta,
+    VcsMutationKind, VcsStateChangedMessage, WorkerShuttingDownMessage,
 };
 
 // Additional top-level output message wrappers
 pub use io::{
-    AuthStatusMessage, ConversationResetMessage, PromptSuggestionMessage, StreamEventMessage,
-    ToolProgressMessage, ToolUseSummaryMessage,
+    AuthStatusMessage, CommandLifecycleMessage, CommandLifecycleState, ConversationResetMessage,
+    PromptSuggestionMessage, StreamEventMessage, SubagentRetry, ToolProgressMessage,
+    ToolUseSummaryMessage,
 };
 
 // Wire-fidelity audit for verifying frames are fully typed
@@ -185,8 +187,8 @@ pub use io::{
 
 // Usage types
 pub use io::{
-    AssistantUsage, CacheCreationDetails, DeferredToolUse, ServerToolUse, SubagentResult,
-    SubagentToolStats, SubagentUsageRollup, UsageInfo,
+    AssistantUsage, CacheCreationDetails, DeferredToolUse, FastModeDisabledReason, ServerToolUse,
+    SubagentResult, SubagentToolStats, SubagentUsageRollup, UsageInfo,
 };
 
 // Typed tool input types

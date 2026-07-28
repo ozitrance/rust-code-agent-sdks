@@ -5,6 +5,121 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.166] - 2026-07-27
+
+### Changed
+
+- **Tested Claude CLI version** bumped to 2.1.220 — no wire drift vs the
+  2.1.219 snapshot, and the full integration suite passes against the
+  installed binary.
+- Shared dependencies and lint policy moved to the workspace root: `serde`,
+  `serde_json`, `thiserror`, `tokio`, `log`, `which`, and dev `env_logger` are
+  now `{ workspace = true }`, and the crate opts into `[workspace.lints]`
+  (`unsafe_code = "deny"`). Aligns previously drifted versions: `tokio`
+  1.47.1 → 1.49.0, `log` 0.4.27 → 0.4.29, `env_logger` 0.11.8 → 0.11.9.
+
+## [2.1.165] - 2026-07-25
+
+### Added
+
+- **`SystemMessage::as_code_change_published()` / `as_vcs_state_changed()`**
+  (plus `is_*` checks) — dedicated typed accessors following the
+  `as_init()` pattern, so consumers reach `CodeChangePublishedMessage` /
+  `VcsStateChangedMessage` without matching on `KnownSystemEvent` or poking
+  raw JSON (#231). Note: the `vcs_state_changed` SDK frame is flat
+  (`kind` + `cwd`) — the CLI's internal git/gh watcher event carries richer
+  `commit`/`push`/`branch`/`pr` sections, but the emitter flattens each to
+  one-or-more `kind` frames before they cross the wire.
+
+## [2.1.164] - 2026-07-24
+
+Catches up to CLI 2.1.219 — the Opus 5 release. Snapshot baseline and
+`TESTED_VERSION` move to 2.1.219; the full integration suite passes against
+the installed binary.
+
+### Added
+
+- **`ClaudeModel::Opus5`** — pinned variant for `claude-opus-5` (display name
+  "Opus 5", knowledge cutoff May 2026). The floating `opus` alias resolves to
+  `claude-opus-5` first-party as of CLI 2.1.219 (noted on the `Opus` variant
+  doc). Model table refreshed from the 2.1.219 binary; the accepted floating
+  aliases are unchanged.
+- **`FastModeDisabledReason`** — open enum (`free`, `preference`,
+  `extra_usage_disabled`, `network_error`, `unknown`, `not_first_party`,
+  `disabled_by_env`, `model_not_allowed`, `sdk_opt_in_required`, `pending`,
+  plus `Unknown(String)`) carried as the new optional
+  `fast_mode_disabled_reason` on `ResultMessage` and `InitMessage`: why fast
+  mode can't serve right now, complementing the existing `fast_mode_state`.
+- **`InitMessage.mcp_server_errors`** — new `McpServerError` struct (`name`,
+  `type`, `message`) recording `--mcp-config` entries that failed validation
+  and were skipped.
+- **`PluginInfo.version`** — installed plugin version on the init plugin
+  list (caught by the live wire-fidelity audit, not the drift fingerprint —
+  it is a nested field).
+
+## [2.1.163] - 2026-07-22
+
+Models the CLI 2.1.205 → 2.1.218 stream-json drift surfaced by the fixed
+schema extractor (#223); the committed snapshot baseline and `TESTED_VERSION`
+move to 2.1.218.
+
+### Added
+
+- **`ClaudeOutput::CommandLifecycle`** — typed variant for the new
+  `command_lifecycle` wire type (fate of a queued command: queued → started →
+  completed/cancelled/discarded), with `CommandLifecycleMessage` and the open
+  `CommandLifecycleState` enum (`Unknown(String)` fallback).
+- **`system/code_change_published`** — `CodeChangePublishedMessage`
+  (`provider`, `url`, `repo`, `identifier`): the session is now associated
+  with a published pull/merge request.
+- **`system/vcs_state_changed`** — `VcsStateChangedMessage` with the open
+  `VcsMutationKind` enum (`commit`/`push`/`merge`/`rebase` +
+  `Unknown(String)`): a harness-observed command mutated repository state.
+  Both new subtypes are wired through `SystemSubtype`, `KnownSystemEvent`,
+  and the `typed_value` wrapping audit.
+- **`AssistantMessage.aborted`** — true when the message was truncated by an
+  interrupt/abort before the stream completed — and
+  **`.resumed_from_incomplete_thinking`** — true when the turn continued a
+  truncated thinking block (max-output-tokens recovery).
+- **`ResultMessage.request_sent_wall_ms`** (fractional wall-clock ms) and
+  **`.user_message_uuid`** (wire uuid of the user message the result answers).
+- **`ToolProgressMessage.heartbeat`**, **`.subagent_type`**, and
+  **`.subagent_retry`** (new `SubagentRetry` struct: attempt, max_retries,
+  retry_delay_ms, error_status, error_category).
+- **`UserMessage.tool_result_meta`** — new `ToolResultMeta` struct carrying
+  the harness-stamped `non_execution_kind` for error tool results and any
+  human-typed `user_feedback` deny comment.
+
+## [2.1.162] - 2026-07-22
+
+### Fixed
+
+- **`ClaudeInput::interrupt()` now actually interrupts** (#218). It previously
+  serialized to a bare `{"subtype":"interrupt"}`, which the CLI silently
+  ignores (verified against 2.1.205 and 2.1.211) — the in-flight turn ran to
+  completion. It now emits the required `control_request` envelope
+  `{"type":"control_request","request_id":...,"request":{"subtype":"interrupt"}}`,
+  which the CLI acknowledges with a `control_response` and cancels the turn
+  immediately (verified live: ack in ~10ms, turn ends with
+  `result subtype=error_during_execution`).
+
+### Changed
+
+- **Breaking**: `ClaudeInput::interrupt(request_id)` now takes the unique
+  request id for the control envelope. `AsyncClient::interrupt()` /
+  `SyncClient::interrupt()` generate an `interrupt-<uuid>` id and now return
+  `Result<String>` (the id) so callers can correlate the CLI's
+  `control_response` ack.
+- **Breaking**: removed `SDKControlInterruptRequest` — its bare wire shape is
+  a no-op against the CLI. Use `ClaudeInput::interrupt(request_id)` or the new
+  `ControlRequestMessage::interrupt(request_id)` constructor instead.
+
+### Added
+
+- **`ControlRequestPayload::Interrupt`** variant and
+  **`ControlRequestMessage::interrupt(request_id)`** constructor (mirroring
+  `::initialize`), so the correctly-enveloped interrupt can be built typed.
+
 ## [2.1.161] - 2026-07-11
 
 ### Added

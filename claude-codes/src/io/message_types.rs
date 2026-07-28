@@ -41,6 +41,8 @@ pub enum SystemSubtype {
     PermissionDenied,
     MirrorError,
     Informational,
+    CodeChangePublished,
+    VcsStateChanged,
     /// A subtype not yet known to this version of the crate.
     Unknown(String),
 }
@@ -76,6 +78,8 @@ impl SystemSubtype {
             Self::PermissionDenied => "permission_denied",
             Self::MirrorError => "mirror_error",
             Self::Informational => "informational",
+            Self::CodeChangePublished => "code_change_published",
+            Self::VcsStateChanged => "vcs_state_changed",
             Self::Unknown(s) => s.as_str(),
         }
     }
@@ -118,6 +122,8 @@ impl From<&str> for SystemSubtype {
             "permission_denied" => Self::PermissionDenied,
             "mirror_error" => Self::MirrorError,
             "informational" => Self::Informational,
+            "code_change_published" => Self::CodeChangePublished,
+            "vcs_state_changed" => Self::VcsStateChanged,
             other => Self::Unknown(other.to_string()),
         }
     }
@@ -565,6 +571,22 @@ pub struct McpMeta {
     pub structured_content: Option<Value>,
 }
 
+/// Display metadata for a `tool_result` block carried on the user wrapper.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolResultMeta {
+    /// The `tool_use_id` of the matching `tool_result` block.
+    pub id: String,
+    /// Harness-stamped reason an `is_error: true` result did not carry the
+    /// tool's own execution output (`user-rejected`, `permission-rule`,
+    /// `automode-*`, `interrupted`, `cancelled`). Open set — treat
+    /// unrecognized values as valid reasons; absent means the tool ran to
+    /// completion.
+    pub non_execution_kind: String,
+    /// The deny comment a human typed at a permission prompt, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_feedback: Option<String>,
+}
+
 /// User message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserMessage {
@@ -619,6 +641,10 @@ pub struct UserMessage {
     pub summarize_metadata: Option<SummarizeMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp_meta: Option<McpMeta>,
+    /// Display metadata for this message's `tool_result` blocks, keyed by
+    /// `tool_use_id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_result_meta: Option<Vec<ToolResultMeta>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_tool_use_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -944,6 +970,32 @@ impl SystemMessage {
         serde_json::from_value(self.data.clone()).ok()
     }
 
+    /// Check if this is a code_change_published message
+    pub fn is_code_change_published(&self) -> bool {
+        self.subtype == SystemSubtype::CodeChangePublished
+    }
+
+    /// Try to parse as a code_change_published message
+    pub fn as_code_change_published(&self) -> Option<CodeChangePublishedMessage> {
+        if self.subtype != SystemSubtype::CodeChangePublished {
+            return None;
+        }
+        serde_json::from_value(self.data.clone()).ok()
+    }
+
+    /// Check if this is a vcs_state_changed message
+    pub fn is_vcs_state_changed(&self) -> bool {
+        self.subtype == SystemSubtype::VcsStateChanged
+    }
+
+    /// Try to parse as a vcs_state_changed message
+    pub fn as_vcs_state_changed(&self) -> Option<VcsStateChangedMessage> {
+        if self.subtype != SystemSubtype::VcsStateChanged {
+            return None;
+        }
+        serde_json::from_value(self.data.clone()).ok()
+    }
+
     /// Parse any typed system subtype known to this crate version.
     pub fn as_known_system_event(&self) -> Option<KnownSystemEvent> {
         macro_rules! parse {
@@ -999,6 +1051,10 @@ impl SystemMessage {
             SystemSubtype::PermissionDenied => parse!(PermissionDenied, PermissionDeniedMessage),
             SystemSubtype::MirrorError => parse!(MirrorError, MirrorErrorMessage),
             SystemSubtype::Informational => parse!(Informational, InformationalMessage),
+            SystemSubtype::CodeChangePublished => {
+                parse!(CodeChangePublished, CodeChangePublishedMessage)
+            }
+            SystemSubtype::VcsStateChanged => parse!(VcsStateChanged, VcsStateChangedMessage),
             SystemSubtype::Unknown(_) => None,
         }
     }
@@ -1066,6 +1122,12 @@ impl SystemMessage {
             }
             SystemSubtype::MirrorError => reserialize(parse_system::<MirrorErrorMessage>(self)),
             SystemSubtype::Informational => reserialize(parse_system::<InformationalMessage>(self)),
+            SystemSubtype::CodeChangePublished => {
+                reserialize(parse_system::<CodeChangePublishedMessage>(self))
+            }
+            SystemSubtype::VcsStateChanged => {
+                reserialize(parse_system::<VcsStateChangedMessage>(self))
+            }
             SystemSubtype::Unknown(_) => None,
         }
     }
@@ -1106,6 +1168,8 @@ pub enum KnownSystemEvent {
     PermissionDenied(PermissionDeniedMessage),
     MirrorError(MirrorErrorMessage),
     Informational(InformationalMessage),
+    CodeChangePublished(CodeChangePublishedMessage),
+    VcsStateChanged(VcsStateChangedMessage),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1428,6 +1492,9 @@ pub struct PluginInfo {
     /// Plugin registry source (e.g., "rust-analyzer-lsp@claude-plugins-official")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Installed plugin version (e.g., "1.0.0"). Added in CLI 2.1.219.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// Plugin load diagnostic reported by system init.
@@ -1448,6 +1515,18 @@ pub struct MemoryPaths {
     pub team: Option<String>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, Value>,
+}
+
+/// An MCP server config entry that failed validation, reported by system
+/// init (e.g. a `url` entry with no `type`). The affected server is skipped
+/// and absent from `InitMessage::mcp_servers`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct McpServerError {
+    pub name: String,
+    /// Stable error category.
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub message: String,
 }
 
 /// Init system message data - sent at session start
@@ -1503,6 +1582,15 @@ pub struct InitMessage {
     /// Fast mode toggle state (e.g., "off")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fast_mode_state: Option<String>,
+
+    /// Why fast mode can't serve right now. Absent when nothing blocks it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_mode_disabled_reason: Option<super::result::FastModeDisabledReason>,
+
+    /// MCP server config entries (from `--mcp-config`) that failed validation
+    /// and were skipped. Affected servers are absent from `mcp_servers`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_server_errors: Option<Vec<McpServerError>>,
 
     /// Whether analytics collection is disabled for this session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1935,6 +2023,99 @@ impl<'de> Deserialize<'de> for AssistantErrorKind {
     }
 }
 
+/// `code_change_published` system message — the session is now associated
+/// with a published code change (a pull/merge request). Fires on creation and
+/// whenever the session contributes to an existing one, so bind on every
+/// event; re-emission for the same URL is possible and idempotent. Values are
+/// scraped from captured command output — treat them as a binding hint and
+/// verify against the forge before routing authenticated requests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeChangePublishedMessage {
+    /// Forge classification derived from the URL's shape (`github`,
+    /// `github-enterprise`, `gitlab`, `bitbucket` today). Open set — treat an
+    /// unknown value as a valid provider, never as an error.
+    pub provider: String,
+    /// Web URL of the pull/merge request. Unverified.
+    pub url: String,
+    /// Repository path from the URL (`owner/name` on GitHub; may carry more
+    /// segments on GitLab).
+    pub repo: String,
+    /// Provider-native change identifier — the PR/MR number as a string.
+    pub identifier: String,
+    pub uuid: String,
+    pub session_id: String,
+}
+
+/// `vcs_state_changed` system message — a harness-observed shell command
+/// mutated repository state. A cache-invalidation signal, deliberately
+/// payload-free beyond classification: consumers re-read state (branch, head,
+/// PR status) instead of decoding the event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VcsStateChangedMessage {
+    /// What class of mutation was observed. New kinds may be added — treat an
+    /// unrecognized kind exactly like a recognized one (something changed).
+    pub kind: VcsMutationKind,
+    /// The session's working directory — a hint, not necessarily the mutated
+    /// repo's path (`git -C` or an inner `cd` mutates elsewhere).
+    pub cwd: String,
+    pub uuid: String,
+    pub session_id: String,
+}
+
+/// Mutation class carried by a [`VcsStateChangedMessage`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum VcsMutationKind {
+    Commit,
+    Push,
+    Merge,
+    Rebase,
+    /// A kind not yet known to this version of the crate.
+    Unknown(String),
+}
+
+impl VcsMutationKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Commit => "commit",
+            Self::Push => "push",
+            Self::Merge => "merge",
+            Self::Rebase => "rebase",
+            Self::Unknown(s) => s.as_str(),
+        }
+    }
+}
+
+impl fmt::Display for VcsMutationKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<&str> for VcsMutationKind {
+    fn from(s: &str) -> Self {
+        match s {
+            "commit" => Self::Commit,
+            "push" => Self::Push,
+            "merge" => Self::Merge,
+            "rebase" => Self::Rebase,
+            other => Self::Unknown(other.to_string()),
+        }
+    }
+}
+
+impl Serialize for VcsMutationKind {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for VcsMutationKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self::from(s.as_str()))
+    }
+}
+
 /// Display metadata for a tool-use block carried on the assistant wrapper.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolUseMeta {
@@ -1968,6 +2149,17 @@ pub struct AssistantMessage {
     pub task_description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<AssistantErrorKind>,
+    /// True when this message was truncated by an interrupt/abort before the
+    /// stream completed — `stop_reason` was never received and the content
+    /// may end mid-word. Absent on normally completed messages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aborted: Option<bool>,
+    /// True when this turn continued the preceding truncated assistant turn
+    /// inside its trailing signed thinking block (max-output-tokens
+    /// recovery). Histories replayed through the bridge must carry the flag
+    /// back so the normalizer keeps the run's prefix on the wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resumed_from_incomplete_thinking: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub supersedes: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2797,5 +2989,172 @@ mod tests {
         let result = user.subagent_result().expect("lenient parse");
         assert_eq!(result.total_tokens, None);
         assert_eq!(result.agent_type, None);
+    }
+
+    #[test]
+    fn test_init_fast_mode_reason_and_mcp_server_errors_fully_wrapped() {
+        use serde_json::Value;
+
+        let raw: Value = serde_json::from_str(
+            r#"{
+            "type":"system","subtype":"init","session_id":"s1","uuid":"u1",
+            "fast_mode_state":"off",
+            "fast_mode_disabled_reason":"not_first_party",
+            "mcp_server_errors":[{"name":"broken","type":"invalid_config","message":"url entry with no type"}]
+        }"#,
+        )
+        .unwrap();
+        crate::io::assert_fully_wrapped(&raw);
+
+        let output: ClaudeOutput = serde_json::from_value(raw).unwrap();
+        let ClaudeOutput::System(sys) = output else {
+            panic!("expected System");
+        };
+        let init = sys.as_init().expect("parses as init");
+        assert_eq!(
+            init.fast_mode_disabled_reason,
+            Some(crate::FastModeDisabledReason::NotFirstParty)
+        );
+        let errs = init.mcp_server_errors.unwrap();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].name, "broken");
+        assert_eq!(errs[0].error_type, "invalid_config");
+    }
+
+    #[test]
+    fn test_code_change_published_fully_wrapped() {
+        use super::{KnownSystemEvent, SystemSubtype};
+        use serde_json::Value;
+
+        let raw: Value = serde_json::from_str(
+            r#"{
+            "type":"system","subtype":"code_change_published",
+            "provider":"github","url":"https://github.com/owner/repo/pull/42",
+            "repo":"owner/repo","identifier":"42",
+            "uuid":"u1","session_id":"s1"
+        }"#,
+        )
+        .unwrap();
+        crate::io::assert_fully_wrapped(&raw);
+
+        let output: ClaudeOutput = serde_json::from_value(raw).unwrap();
+        let ClaudeOutput::System(sys) = output else {
+            panic!("expected System");
+        };
+        assert_eq!(sys.subtype, SystemSubtype::CodeChangePublished);
+        let Some(KnownSystemEvent::CodeChangePublished(msg)) = sys.as_known_system_event() else {
+            panic!("expected CodeChangePublished event");
+        };
+        assert_eq!(msg.provider, "github");
+        assert_eq!(msg.repo, "owner/repo");
+        assert_eq!(msg.identifier, "42");
+
+        assert!(sys.is_code_change_published());
+        assert!(!sys.is_vcs_state_changed());
+        let direct = sys.as_code_change_published().expect("direct accessor");
+        assert_eq!(direct.url, "https://github.com/owner/repo/pull/42");
+        assert!(sys.as_vcs_state_changed().is_none());
+    }
+
+    #[test]
+    fn test_vcs_state_changed_fully_wrapped() {
+        use super::{KnownSystemEvent, VcsMutationKind};
+        use serde_json::Value;
+
+        for kind in ["commit", "push", "merge", "rebase"] {
+            let raw: Value = serde_json::from_str(&format!(
+                r#"{{"type":"system","subtype":"vcs_state_changed","kind":"{}","cwd":"/repo","uuid":"u1","session_id":"s1"}}"#,
+                kind
+            ))
+            .unwrap();
+            crate::io::assert_fully_wrapped(&raw);
+
+            let output: ClaudeOutput = serde_json::from_value(raw).unwrap();
+            let ClaudeOutput::System(sys) = output else {
+                panic!("expected System");
+            };
+            let Some(KnownSystemEvent::VcsStateChanged(msg)) = sys.as_known_system_event() else {
+                panic!("expected VcsStateChanged event");
+            };
+            assert_eq!(msg.kind.as_str(), kind);
+            assert!(!matches!(msg.kind, VcsMutationKind::Unknown(_)));
+        }
+
+        // Unknown kinds are valid per the wire contract.
+        let raw: Value = serde_json::from_str(
+            r#"{"type":"system","subtype":"vcs_state_changed","kind":"tag","cwd":"/repo","uuid":"u2","session_id":"s2"}"#,
+        )
+        .unwrap();
+        crate::io::assert_fully_wrapped(&raw);
+        let output: ClaudeOutput = serde_json::from_value(raw).unwrap();
+        let ClaudeOutput::System(sys) = output else {
+            panic!("expected System");
+        };
+        let Some(KnownSystemEvent::VcsStateChanged(msg)) = sys.as_known_system_event() else {
+            panic!("expected VcsStateChanged event");
+        };
+        assert_eq!(msg.kind, VcsMutationKind::Unknown("tag".to_string()));
+
+        assert!(sys.is_vcs_state_changed());
+        let direct = sys.as_vcs_state_changed().expect("direct accessor");
+        assert_eq!(direct.cwd, "/repo");
+        assert!(sys.as_code_change_published().is_none());
+    }
+
+    #[test]
+    fn test_assistant_aborted_and_resume_flags_roundtrip() {
+        let json = r#"{
+            "type":"assistant",
+            "message":{"id":"msg_1","role":"assistant","model":"claude-3","content":[{"type":"text","text":"partial"}]},
+            "session_id":"s1",
+            "aborted":true,
+            "resumed_from_incomplete_thinking":true
+        }"#;
+        let output: ClaudeOutput = serde_json::from_str(json).unwrap();
+        let ClaudeOutput::Assistant(msg) = &output else {
+            panic!("expected Assistant");
+        };
+        assert_eq!(msg.aborted, Some(true));
+        assert_eq!(msg.resumed_from_incomplete_thinking, Some(true));
+        let reserialized = serde_json::to_string(&output).unwrap();
+        assert!(reserialized.contains("\"aborted\":true"));
+        assert!(reserialized.contains("\"resumed_from_incomplete_thinking\":true"));
+
+        // Absent flags stay absent on the wire.
+        let json = r#"{
+            "type":"assistant",
+            "message":{"id":"msg_2","role":"assistant","model":"claude-3","content":[]},
+            "session_id":"s2"
+        }"#;
+        let output: ClaudeOutput = serde_json::from_str(json).unwrap();
+        let reserialized = serde_json::to_string(&output).unwrap();
+        assert!(!reserialized.contains("aborted"));
+        assert!(!reserialized.contains("resumed_from_incomplete_thinking"));
+    }
+
+    #[test]
+    fn test_user_tool_result_meta_roundtrip() {
+        let json = r#"{
+            "type":"user",
+            "message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"denied"}]},
+            "session_id":"622ae0c3-3d50-4fa7-9ee0-69d691238c6d",
+            "tool_result_meta":[
+                {"id":"toolu_1","non_execution_kind":"user-rejected","user_feedback":"use the staging db"},
+                {"id":"toolu_2","non_execution_kind":"permission-rule"}
+            ]
+        }"#;
+        let output: ClaudeOutput = serde_json::from_str(json).unwrap();
+        let ClaudeOutput::User(user) = &output else {
+            panic!("expected User");
+        };
+        let meta = user.tool_result_meta.as_ref().unwrap();
+        assert_eq!(meta.len(), 2);
+        assert_eq!(meta[0].non_execution_kind, "user-rejected");
+        assert_eq!(meta[0].user_feedback.as_deref(), Some("use the staging db"));
+        assert_eq!(meta[1].user_feedback, None);
+
+        let reserialized = serde_json::to_string(&output).unwrap();
+        assert!(reserialized.contains("\"non_execution_kind\":\"user-rejected\""));
+        assert!(!reserialized.contains("\"user_feedback\":null"));
     }
 }
