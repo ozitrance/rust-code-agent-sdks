@@ -119,6 +119,8 @@ pub mod client_sync;
 #[cfg(any(feature = "sync-client", feature = "async-client"))]
 pub mod cli;
 #[cfg(any(feature = "sync-client", feature = "async-client"))]
+mod process;
+#[cfg(any(feature = "sync-client", feature = "async-client"))]
 pub mod version;
 
 // Core exports always available
