@@ -252,7 +252,9 @@ pub fn client_request_samples() -> Vec<(&'static str, Value)> {
         ),
         ("account/usage/read", json!({})),
         ("account/workspaceMessages/read", json!({})),
+        ("app/installed", json!({})),
         ("app/list", json!({})),
+        ("app/read", json!({"appIds": []})),
         ("command/exec", json!({"command": []})),
         (
             "command/exec/resize",
@@ -276,6 +278,10 @@ pub fn client_request_samples() -> Vec<(&'static str, Value)> {
         ("externalAgentConfig/detect", json!({})),
         ("externalAgentConfig/import", json!({"migrationItems": []})),
         ("externalAgentConfig/import/readHistories", json!({})),
+        (
+            "externalAgentConfig/import/recordHistory",
+            json!({"itemTypeResults": [], "providerId": "x"}),
+        ),
         ("feedback/upload", json!({"classification": "x"})),
         (
             "fs/copy",

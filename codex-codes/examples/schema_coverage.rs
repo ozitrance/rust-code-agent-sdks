@@ -512,6 +512,8 @@ mod samples {
             methods::PLUGIN_SHARE_CHECKOUT,
             methods::PLUGIN_SHARE_DELETE,
             methods::APP_LIST,
+            methods::APP_READ,
+            methods::APP_INSTALLED,
             methods::FS_READFILE,
             methods::FS_WRITEFILE,
             methods::FS_CREATEDIRECTORY,
@@ -564,6 +566,7 @@ mod samples {
             methods::ACCOUNT_RATELIMITRESETCREDIT_CONSUME,
             methods::ACCOUNT_WORKSPACEMESSAGES_READ,
             methods::EXTERNALAGENTCONFIG_IMPORT_READHISTORIES,
+            methods::EXTERNALAGENTCONFIG_IMPORT_RECORDHISTORY,
         ]
         .into_iter()
         .collect()

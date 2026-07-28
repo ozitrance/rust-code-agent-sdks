@@ -37,11 +37,11 @@ pub enum Account {
     #[serde(rename = "amazonBedrock")]
     AmazonBedrock {
         #[serde(
-            rename = "credentialSource",
+            rename = "usesCodexManagedCredentials",
             default,
             skip_serializing_if = "Option::is_none"
         )]
-        credential_source: Option<Value>,
+        uses_codex_managed_credentials: Option<bool>,
     },
 }
 
@@ -182,14 +182,6 @@ pub struct AgentMessageDeltaNotification {
 #[serde(transparent)]
 pub struct AgentPath(pub String);
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum AmazonBedrockCredentialSource {
-    #[serde(rename = "codexManaged")]
-    CodexManaged,
-    #[serde(rename = "awsManaged")]
-    AwsManaged,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalyticsConfig {
@@ -309,12 +301,6 @@ pub struct AppMetadata {
         skip_serializing_if = "Option::is_none"
     )]
     pub first_party_requires_install: Option<bool>,
-    #[serde(
-        rename = "firstPartyType",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub first_party_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<AppReview>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -427,6 +413,31 @@ pub enum AppTemplateUnavailableReason {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AppToolSummary {
+    #[serde(default)]
+    pub description: String,
+    #[serde(
+        rename = "disabledReason",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub disabled_reason: Option<String>,
+    #[serde(rename = "isEnabled", default, skip_serializing_if = "Option::is_none")]
+    pub is_enabled: Option<bool>,
+    #[serde(
+        rename = "isReadOnly",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub is_read_only: Option<bool>,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApplyPatchApprovalParams {
     #[serde(rename = "callId", default)]
     pub call_id: String,
@@ -459,6 +470,26 @@ pub enum ApprovalsReviewer {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AppsInstalledParams {
+    #[serde(
+        rename = "forceRefresh",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub force_refresh: Option<bool>,
+    #[serde(rename = "threadId", default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsInstalledResponse {
+    #[serde(default)]
+    pub apps: Vec<InstalledApp>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppsListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
@@ -485,6 +516,28 @@ pub struct AppsListResponse {
         skip_serializing_if = "Option::is_none"
     )]
     pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsReadParams {
+    #[serde(rename = "appIds", default)]
+    pub app_ids: Vec<String>,
+    #[serde(
+        rename = "includeTools",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub include_tools: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsReadResponse {
+    #[serde(default)]
+    pub apps: Vec<ConnectorMetadata>,
+    #[serde(rename = "missingAppIds", default)]
+    pub missing_app_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -551,6 +604,17 @@ pub enum AutoCompactTokenLimitScope {
 pub enum AutoReviewDecisionSource {
     #[serde(rename = "agent")]
     Agent,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserUseRequirements {
+    #[serde(
+        rename = "disableAutoReview",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub disable_auto_review: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1246,6 +1310,12 @@ pub struct ConfigRequirements {
     )]
     pub allow_appshots: Option<bool>,
     #[serde(
+        rename = "allowLoginShell",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub allow_login_shell: Option<bool>,
+    #[serde(
         rename = "allowManagedHooksOnly",
         default,
         skip_serializing_if = "Option::is_none"
@@ -1288,6 +1358,18 @@ pub struct ConfigRequirements {
     )]
     pub allowed_windows_sandbox_implementations: Option<Vec<WindowsSandboxSetupMode>>,
     #[serde(
+        rename = "browserUse",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub browser_use: Option<BrowserUseRequirements>,
+    #[serde(
+        rename = "checkForUpdateOnStartup",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub check_for_update_on_startup: Option<bool>,
+    #[serde(
         rename = "computerUse",
         default,
         skip_serializing_if = "Option::is_none"
@@ -1312,7 +1394,29 @@ pub struct ConfigRequirements {
     )]
     pub feature_requirements: Option<std::collections::BTreeMap<String, bool>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback: Option<FeedbackRequirements>,
+    #[serde(rename = "logDir", default, skip_serializing_if = "Option::is_none")]
+    pub log_dir: Option<String>,
+    #[serde(
+        rename = "modelCatalogJson",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_catalog_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models: Option<ModelsRequirements>,
+    #[serde(
+        rename = "sqliteHome",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sqlite_home: Option<String>,
+    #[serde(
+        rename = "windowsSandboxPrivateDesktop",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub windows_sandbox_private_desktop: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1369,6 +1473,49 @@ pub struct ConfigWriteResponse {
     pub status: WriteStatus,
     #[serde(default)]
     pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectorMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(
+        rename = "distributionChannel",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub distribution_channel: Option<String>,
+    #[serde(rename = "iconUrl", default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    #[serde(
+        rename = "iconUrlDark",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub icon_url_dark: Option<String>,
+    #[serde(default)]
+    pub id: String,
+    #[serde(
+        rename = "installUrl",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub install_url: Option<String>,
+    #[serde(default)]
+    pub name: String,
+    #[serde(
+        rename = "pluginDisplayNames",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub plugin_display_names: Option<Vec<String>>,
+    #[serde(
+        rename = "toolSummaries",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tool_summaries: Option<Vec<AppToolSummary>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -1437,6 +1584,11 @@ pub enum DynamicToolCallOutputContentItem {
     InputImage {
         #[serde(rename = "imageUrl")]
         image_url: String,
+    },
+    #[serde(rename = "inputAudio")]
+    InputAudio {
+        #[serde(rename = "audioUrl")]
+        audio_url: String,
     },
 }
 
@@ -1615,6 +1767,18 @@ pub struct ExternalAgentConfigDetectParams {
     )]
     pub include_home: Option<bool>,
     #[serde(
+        rename = "maxSessionAgeDays",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_session_age_days: Option<i64>,
+    #[serde(
+        rename = "maxSessions",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_sessions: Option<i64>,
+    #[serde(
         rename = "migrationSource",
         default,
         skip_serializing_if = "Option::is_none"
@@ -1658,8 +1822,30 @@ pub struct ExternalAgentConfigImportHistory {
     pub failures: Vec<ExternalAgentConfigImportItemTypeFailure>,
     #[serde(rename = "importId", default)]
     pub import_id: String,
+    #[serde(
+        rename = "providerId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_id: Option<String>,
     #[serde(default)]
     pub successes: Vec<ExternalAgentConfigImportItemTypeSuccess>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalAgentConfigImportHistoryRecordParams {
+    #[serde(rename = "itemTypeResults", default)]
+    pub item_type_results: Vec<ExternalAgentConfigImportTypeResult>,
+    #[serde(rename = "providerId", default)]
+    pub provider_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalAgentConfigImportHistoryRecordResponse {
+    #[serde(rename = "importId", default)]
+    pub import_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1709,6 +1895,12 @@ pub struct ExternalAgentConfigImportParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub migration_source: Option<String>,
+    #[serde(
+        rename = "providerId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
@@ -1792,6 +1984,13 @@ pub struct ExternalAgentImportedConnectorCandidate {
 pub enum ExternalAgentImportedConnectorSource {
     #[serde(rename = "remoteMcpServersConfig")]
     RemoteMcpServersConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedbackRequirements {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2453,6 +2652,8 @@ pub enum HookEventName {
     PostCompact,
     #[serde(rename = "sessionStart")]
     SessionStart,
+    #[serde(rename = "sessionEnd")]
+    SessionEnd,
     #[serde(rename = "userPromptSubmit")]
     UserPromptSubmit,
     #[serde(rename = "subagentStart")]
@@ -2484,6 +2685,12 @@ pub enum HookHandlerType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HookMetadata {
+    #[serde(
+        rename = "additionalContextLimit",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub additional_context_limit: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(rename = "currentHash", default)]
@@ -2771,6 +2978,25 @@ pub enum InputModality {
     Text,
     #[serde(rename = "image")]
     Image,
+    #[serde(rename = "audio")]
+    Audio,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledApp {
+    #[serde(default)]
+    pub callable: bool,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub id: String,
+    #[serde(
+        rename = "runtimeName",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub runtime_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4182,6 +4408,8 @@ pub enum PlanType {
     Self_serve_business_usage_based,
     #[serde(rename = "business")]
     Business,
+    #[serde(rename = "ent26")]
+    Ent26,
     #[serde(rename = "enterprise_cbp_usage_based")]
     Enterprise_cbp_usage_based,
     #[serde(rename = "enterprise")]
@@ -4434,6 +4662,12 @@ pub struct PluginListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwds: Option<Vec<AbsolutePathBuf>>,
     #[serde(
+        rename = "forceRefetch",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub force_refetch: Option<bool>,
+    #[serde(
         rename = "marketplaceKinds",
         default,
         skip_serializing_if = "Option::is_none"
@@ -4532,6 +4766,12 @@ pub struct PluginShareCheckoutResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginShareContext {
+    #[serde(
+        rename = "canPublishToWorkspace",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub can_publish_to_workspace: Option<bool>,
     #[serde(
         rename = "creatorAccountUserId",
         default,
@@ -4672,6 +4912,12 @@ pub struct PluginShareSaveParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginShareSaveResponse {
+    #[serde(
+        rename = "canPublishToWorkspace",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub can_publish_to_workspace: Option<bool>,
     #[serde(rename = "remotePluginId", default)]
     pub remote_plugin_id: String,
     #[serde(rename = "shareUrl", default)]
@@ -4703,6 +4949,8 @@ pub enum PluginShareUpdateDiscoverability {
     UNLISTED,
     #[serde(rename = "PRIVATE")]
     PRIVATE,
+    #[serde(rename = "LISTED")]
+    LISTED,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4799,6 +5047,12 @@ pub struct PluginSummary {
         skip_serializing_if = "Option::is_none"
     )]
     pub local_version: Option<String>,
+    #[serde(
+        rename = "mustShowInstallationInterstitial",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub must_show_installation_interstitial: Option<bool>,
     #[serde(default)]
     pub name: String,
     #[serde(
@@ -5188,7 +5442,7 @@ pub enum ReviewDecision {
         network_policy_amendment: NetworkPolicyAmendment,
     },
     #[serde(rename = "denied")]
-    Denied,
+    Denied { rejection: String },
     #[serde(rename = "timed_out")]
     TimedOut,
     #[serde(rename = "abort")]
@@ -5471,8 +5725,20 @@ pub struct SkillInterface {
     pub display_name: Option<String>,
     #[serde(rename = "iconLarge", default, skip_serializing_if = "Option::is_none")]
     pub icon_large: Option<AbsolutePathBuf>,
+    #[serde(
+        rename = "iconLargeUrl",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub icon_large_url: Option<String>,
     #[serde(rename = "iconSmall", default, skip_serializing_if = "Option::is_none")]
     pub icon_small: Option<AbsolutePathBuf>,
+    #[serde(
+        rename = "iconSmallUrl",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub icon_small_url: Option<String>,
     #[serde(
         rename = "shortDescription",
         default,
@@ -5765,6 +6031,8 @@ pub struct Thread {
     pub git_info: Option<GitInfo>,
     #[serde(default)]
     pub id: String,
+    #[serde(rename = "isPinned", default, skip_serializing_if = "Option::is_none")]
+    pub is_pinned: Option<bool>,
     #[serde(rename = "modelProvider", default)]
     pub model_provider: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6179,8 +6447,16 @@ pub enum ThreadItem {
         #[serde(rename = "exitCode", default, skip_serializing_if = "Option::is_none")]
         exit_code: Option<i64>,
         id: String,
+        #[serde(rename = "pluginId", default, skip_serializing_if = "Option::is_none")]
+        plugin_id: Option<String>,
         #[serde(rename = "processId", default, skip_serializing_if = "Option::is_none")]
         process_id: Option<String>,
+        #[serde(
+            rename = "scriptPath",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        script_path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source: Option<Value>,
         status: CommandExecutionStatus,
@@ -6342,6 +6618,8 @@ pub struct ThreadListParams {
     pub cursor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<ThreadListCwdFilter>,
+    #[serde(rename = "isPinned", default, skip_serializing_if = "Option::is_none")]
+    pub is_pinned: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
     #[serde(
@@ -6435,6 +6713,8 @@ pub struct ThreadMetadataGitInfoUpdateParams {
 pub struct ThreadMetadataUpdateParams {
     #[serde(rename = "gitInfo", default, skip_serializing_if = "Option::is_none")]
     pub git_info: Option<ThreadMetadataGitInfoUpdateParams>,
+    #[serde(rename = "isPinned", default, skip_serializing_if = "Option::is_none")]
+    pub is_pinned: Option<bool>,
     #[serde(rename = "threadId", default)]
     pub thread_id: String,
 }
@@ -7392,6 +7672,13 @@ pub enum UserInput {
     LocalImage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<ImageDetail>,
+        path: String,
+    },
+    Audio {
+        url: String,
+    },
+    #[serde(rename = "localAudio")]
+    LocalAudio {
         path: String,
     },
     Skill {
