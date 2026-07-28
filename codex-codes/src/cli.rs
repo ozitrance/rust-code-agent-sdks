@@ -161,6 +161,7 @@ impl AppServerBuilder {
             cmd.current_dir(dir);
         }
 
+        crate::process::configure_no_window(cmd.as_std_mut());
         cmd.spawn().map_err(crate::error::Error::Io)
     }
 
@@ -185,6 +186,7 @@ impl AppServerBuilder {
             cmd.current_dir(dir);
         }
 
+        crate::process::configure_no_window(&mut cmd);
         cmd.spawn().map_err(crate::error::Error::Io)
     }
 }
