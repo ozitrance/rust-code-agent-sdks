@@ -1,0 +1,9 @@
+{
+  "id": "evt_fec26b0db001kMDzMXbnb3l2Im",
+  "type": "permission.replied",
+  "properties": {
+    "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+    "requestID": "per_fec26b08c001qQsXviDKeTADiW",
+    "reply": "once"
+  }
+}

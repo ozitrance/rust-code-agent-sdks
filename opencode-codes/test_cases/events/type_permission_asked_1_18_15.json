@@ -1,0 +1,22 @@
+{
+  "id": "evt_fec26b08c002bogbk68MsRNRHU",
+  "type": "permission.asked",
+  "properties": {
+    "id": "per_fec26b08c001qQsXviDKeTADiW",
+    "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+    "permission": "bash",
+    "patterns": [
+      "printf opencode-sdk-tool-fixture"
+    ],
+    "metadata": {
+      "command": "printf opencode-sdk-tool-fixture"
+    },
+    "always": [
+      "printf *"
+    ],
+    "tool": {
+      "messageID": "msg_fec26a108001tBqUCNnpBgXlsA",
+      "callID": "call_00_QVUwrYVtnjWX4Gh1vD9L5073"
+    }
+  }
+}

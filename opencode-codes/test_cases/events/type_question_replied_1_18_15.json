@@ -1,0 +1,13 @@
+{
+  "id": "evt_fec26b4ef001m2pMl2QTs8pu8q",
+  "type": "question.replied",
+  "properties": {
+    "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+    "requestID": "que_fec26b480001vsJ2Y507uda88Y",
+    "answers": [
+      [
+        "red"
+      ]
+    ]
+  }
+}

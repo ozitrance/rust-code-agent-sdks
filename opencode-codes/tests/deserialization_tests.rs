@@ -1,9 +1,9 @@
 //! Lossless-deserialization drift tripwire for captured opencode wire fixtures.
 //!
-//! Every fixture under `test_cases/` was captured live from opencode 1.18.5
-//! (see `test_cases/README.md` for provenance). Each one is deserialized into
-//! the generated protocol type, serialized back to a [`serde_json::Value`], and
-//! the re-serialized shape is checked to be a subset of the original wire JSON.
+//! Every fixture under `test_cases/` was captured live from the opencode version
+//! named in `test_cases/README.md`. Each one is deserialized into the generated
+//! protocol type, serialized back to a [`serde_json::Value`], and the
+//! re-serialized shape is checked to be a subset of the original wire JSON.
 //!
 //! "Subset" tolerates the two intentional lossy behaviours of the generated
 //! types: `Option` fields that were `None` are skipped, and internally-tagged
@@ -17,8 +17,8 @@
 //! making the event-stream test a strong forward-compatibility tripwire.
 
 use opencode_codes::protocol_generated::types::{
-    Event, MessageWithParts, ModelCapabilities2Interleaved, NotFoundError,
-    ProviderConfigModelsValueInterleaved, Session, SessionStatus,
+    Event, MessageWithParts, ModelCapabilities2Interleaved, NotFoundError, Part,
+    ProviderConfigModelsValueInterleaved, Session, SessionStatus, ToolState,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -143,6 +143,47 @@ fn messages_after_prompt_roundtrips() {
 }
 
 #[test]
+fn opencode_1_18_15_tool_question_messages_roundtrip() {
+    let msgs: Vec<MessageWithParts> = roundtrip(
+        "messages_tool_question_1_18_15",
+        include_str!("../test_cases/rest/messages_tool_question_1_18_15.json"),
+    );
+    assert_eq!(
+        msgs.len(),
+        3,
+        "expected one user and two assistant messages"
+    );
+
+    let parts: Vec<&Part> = msgs.iter().flat_map(|message| &message.parts).collect();
+    assert!(parts.iter().any(|part| matches!(part, Part::Reasoning(_))));
+    assert!(parts.iter().any(|part| matches!(part, Part::StepStart(_))));
+    assert!(parts.iter().any(|part| matches!(part, Part::StepFinish(_))));
+    assert!(parts.iter().any(|part| matches!(part, Part::Text(_))));
+
+    for expected_tool in ["bash", "question"] {
+        assert!(
+            parts.iter().any(|part| matches!(
+                part,
+                Part::Tool(tool)
+                    if tool.tool == expected_tool
+                        && matches!(tool.state, ToolState::Completed(_))
+            )),
+            "missing completed `{expected_tool}` tool part"
+        );
+    }
+}
+
+#[test]
+fn opencode_1_18_15_session_create_roundtrips() {
+    let session: Session = roundtrip(
+        "session_create_1_18_15",
+        include_str!("../test_cases/rest/session_create_1_18_15.json"),
+    );
+    assert_eq!(session.version, "1.18.15");
+    assert!(session.directory.contains("fixture-user"));
+}
+
+#[test]
 fn abort_response_roundtrips() {
     let aborted: bool = roundtrip(
         "abort_response",
@@ -196,6 +237,70 @@ fn event_stream_every_frame_roundtrips() {
             seen_types.contains(expected),
             "fixture regression: event type `{expected}` no longer present in capture"
         );
+    }
+}
+
+#[test]
+fn opencode_1_18_15_tool_question_event_stream_roundtrips() {
+    let stream = include_str!("../test_cases/events/event_stream_tool_question_1_18_15.jsonl");
+    let mut count = 0usize;
+    let mut seen_types = std::collections::BTreeSet::new();
+    let mut tool_states = std::collections::BTreeSet::new();
+
+    for (i, line) in stream.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let label = format!("event_stream_tool_question_1_18_15[{i}]");
+        let orig: Value =
+            serde_json::from_str(line).unwrap_or_else(|e| panic!("{label} is not valid JSON: {e}"));
+        if let Some(event_type) = orig.get("type").and_then(Value::as_str) {
+            seen_types.insert(event_type.to_string());
+        }
+
+        let event: Event = roundtrip(&label, line);
+        if let Event::MessagePartUpdated(update) = event {
+            if let Part::Tool(tool) = update.properties.part {
+                let state = match tool.state {
+                    ToolState::Pending(_) => "pending",
+                    ToolState::Running(_) => "running",
+                    ToolState::Completed(_) => "completed",
+                    ToolState::Error(_) => "error",
+                };
+                tool_states.insert((tool.tool, state));
+            }
+        }
+        count += 1;
+    }
+
+    assert_eq!(count, 49, "captured event-frame count changed");
+    for expected in [
+        "server.connected",
+        "session.created",
+        "session.updated",
+        "message.updated",
+        "message.part.updated",
+        "message.part.delta",
+        "session.status",
+        "session.diff",
+        "permission.asked",
+        "permission.replied",
+        "question.asked",
+        "question.replied",
+        "session.idle",
+    ] {
+        assert!(
+            seen_types.contains(expected),
+            "fixture regression: event type `{expected}` no longer present in capture"
+        );
+    }
+    for tool in ["bash", "question"] {
+        for state in ["pending", "running", "completed"] {
+            assert!(
+                tool_states.contains(&(tool.to_string(), state)),
+                "fixture regression: missing `{tool}`/`{state}` tool transition"
+            );
+        }
     }
 }
 

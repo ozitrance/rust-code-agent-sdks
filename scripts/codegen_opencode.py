@@ -10,7 +10,7 @@ hand-wrapped endpoints and the `/event` SSE union, synthesizes named types for i
 object / union shapes, and writes:
 
   - opencode-codes/src/protocol_generated/types.rs   (one Rust item per schema)
-  - opencode-codes/src/protocol_generated/samples.rs (JSON samples for the six endpoints)
+  - opencode-codes/src/protocol_generated/samples.rs (JSON endpoint samples)
   - opencode-codes/src/protocol_generated/mod.rs     (module index)
 
 OpenAPI 3.1 handling:

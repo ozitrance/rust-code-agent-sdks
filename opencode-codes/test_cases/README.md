@@ -1,8 +1,7 @@
 # Captured wire fixtures
 
-Real HTTP/SSE payloads captured live from an **opencode 1.18.5** server
-(`GET /doc` reported `1.18.5`) running unauthenticated at
-`http://127.0.0.1:41999`. They are the type-level drift tripwire consumed by
+Real HTTP/SSE payloads captured live from opencode 1.18.5 and 1.18.15 servers.
+They are the type-level drift tripwire consumed by
 `tests/deserialization_tests.rs`: every file must deserialize losslessly into
 the generated `opencode_codes::protocol_generated::types` and re-serialize to a
 subset of its original wire JSON.
@@ -12,10 +11,20 @@ a live server and re-run the deserialization suite.
 
 ## Provenance
 
-Captured 2026-07-26 by driving the six hand-wrapped endpoints with `curl`. The
-server had a working mock provider (`providerID: "opencode"`, model
-`big-pickle`), so assistant turns carry real reasoning/text/step parts rather
-than a provider error. Session/message/permission ids are from that live run.
+The original fixtures were captured 2026-07-26 against 1.18.5 by driving the
+initial client endpoints with `curl`. The server had a working provider
+(`providerID: "opencode"`, model `big-pickle`), so assistant turns carry real
+reasoning/text/step parts rather than a provider error.
+
+The `_1_18_15` fixtures were captured 2026-08-10 in one bounded authenticated
+workflow using `opencode/big-pickle`. The prompt requested one `bash` tool call
+behind an explicit permission and one `question` tool call. The harness replied
+to both and waited for `session.idle`, then reconciled with the REST message
+list. The event stream keeps every non-delta frame plus one representative
+`message.part.delta` frame. Session/message/request ids, timestamps, and wire
+payloads are retained. Only the local username and random temporary-directory
+suffix were normalized; no API credentials or authentication headers were
+captured.
 
 ## Contents
 
@@ -29,6 +38,8 @@ than a provider error. Session/message/permission ids are from that live run.
 | `messages_empty.json` | `GET /session/{id}/message` (200, fresh session) | `Vec<MessageWithParts>` |
 | `messages_after_prompt.json` | `GET /session/{id}/message` (200, after a prompt) | `Vec<MessageWithParts>` |
 | `abort_response.json` | `POST /session/{id}/abort` (200) | `bool` |
+| `session_create_1_18_15.json` | `POST /session` (200) | `Session` |
+| `messages_tool_question_1_18_15.json` | `GET /session/{id}/message` after permission + question workflow | `Vec<MessageWithParts>` |
 
 `POST /session/{id}/prompt_async` is not represented by a response body: it
 answers **HTTP 204 No Content**. Its effect is observed in
@@ -43,6 +54,11 @@ samples (`type_*.json`) are the first occurrence of each distinct event type,
 kept for readable inspection. Types exercised: `server.connected`,
 `session.updated`, `message.updated`, `message.part.updated`,
 `message.part.delta`, `session.status`, `session.diff`, `session.idle`.
+
+`event_stream_tool_question_1_18_15.jsonl` adds `session.created`,
+`permission.asked`, `permission.replied`, `question.asked`, and
+`question.replied`, as well as the pending/running/completed transitions of
+both tool calls. Suffixed per-type files are readable samples from that stream.
 
 ### `errors/` — error responses
 

@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Managed servers now expose their PID and cached exit status, support
   repeatable `wait_for_exit`, and provide borrowed, repeatable `shutdown` while
   retaining the consuming `stop` method.
+- Live 1.18.15 REST/SSE fixtures covering tool state transitions, permission
+  and question request/reply events, message reconciliation, and idle
+  completion, with lossless generated-type round-trip tests.
 
 ## [1.18.15] - 2026-08-10
 

@@ -1,0 +1,46 @@
+{
+  "id": "evt_fec269dd6001um3X28B19dcZZt",
+  "type": "session.created",
+  "properties": {
+    "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+    "info": {
+      "id": "ses_013d9622affe0Ypk8tiISYxsY5",
+      "slug": "proud-falcon",
+      "version": "1.18.15",
+      "projectID": "global",
+      "directory": "C:\\Users\\fixture-user\\AppData\\Local\\Temp\\opencode-codes-fixture",
+      "path": "tmp/opencode-codes-fixture",
+      "title": "opencode-codes 1.18.15 tool-question capture",
+      "model": {
+        "id": "big-pickle",
+        "providerID": "opencode"
+      },
+      "permission": [
+        {
+          "permission": "bash",
+          "pattern": "*",
+          "action": "ask"
+        },
+        {
+          "permission": "question",
+          "pattern": "*",
+          "action": "allow"
+        }
+      ],
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "time": {
+        "created": 1786373381589,
+        "updated": 1786373381589
+      }
+    }
+  }
+}

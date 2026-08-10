@@ -1,0 +1,235 @@
+[
+  {
+    "info": {
+      "id": "msg_fec269e1900110ArIQ24DcZ0rF",
+      "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+      "role": "user",
+      "time": {
+        "created": 1786373381657
+      },
+      "summary": {
+        "diffs": []
+      },
+      "agent": "build",
+      "model": {
+        "providerID": "opencode",
+        "modelID": "big-pickle"
+      }
+    },
+    "parts": [
+      {
+        "id": "prt_fec269e220016klDZNH52YUa5t",
+        "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+        "messageID": "msg_fec269e1900110ArIQ24DcZ0rF",
+        "type": "text",
+        "text": "Follow these steps exactly. First use the bash tool once to run printf opencode-sdk-tool-fixture. Then use the question tool to ask one single-select question with options red and blue. After I answer, reply with one short sentence. Do not use any other tools."
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_fec26a108001tBqUCNnpBgXlsA",
+      "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+      "role": "assistant",
+      "time": {
+        "created": 1786373382408,
+        "completed": 1786373387785
+      },
+      "parentID": "msg_fec269e1900110ArIQ24DcZ0rF",
+      "modelID": "big-pickle",
+      "providerID": "opencode",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "C:\\Users\\fixture-user\\AppData\\Local\\Temp\\opencode-codes-fixture",
+        "root": "/"
+      },
+      "cost": 0,
+      "tokens": {
+        "total": 8853,
+        "input": 8490,
+        "output": 129,
+        "reasoning": 234,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "finish": "tool-calls"
+    },
+    "parts": [
+      {
+        "id": "prt_fec26a827001NA4z0170VAWCtC",
+        "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+        "messageID": "msg_fec26a108001tBqUCNnpBgXlsA",
+        "type": "step-start"
+      },
+      {
+        "id": "prt_fec26aa22001KJ2dnx2iHeQNfk",
+        "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+        "messageID": "msg_fec26a108001tBqUCNnpBgXlsA",
+        "type": "reasoning",
+        "text": "The user wants me to follow specific steps:\n1. Use bash tool once to run `printf opencode-sdk-tool-fixture`\n2. Use question tool to ask one single-select question with options red and blue\n3. After they answer, reply with one short sentence\n4. Do not use any other tools\n\nLet me start with the bash command and then the question tool. The bash and question tools could be done in parallel since they're independent. Actually, let me think - the steps say \"First use the bash tool once to run printf opencode-sdk-tool-fixture. Then use the question tool.\" So sequential. But they are independent of each other, so I can batch them. Actually the instruction says to do them in order. Let me just do both in one message since they're independent... but the user said \"First use the bash tool once... Then use the question tool\". I could run them in parallel since they're independent. But to be safe and follow exactly, I'll do them in the same block since they don't depend on each other. The guidance says batch independent calls. Let me batch them.",
+        "time": {
+          "start": 1786373384738,
+          "end": 1786373386124
+        }
+      },
+      {
+        "id": "prt_fec26af93001DF1mIWlltRikxE",
+        "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+        "messageID": "msg_fec26a108001tBqUCNnpBgXlsA",
+        "type": "tool",
+        "callID": "call_00_QVUwrYVtnjWX4Gh1vD9L5073",
+        "tool": "bash",
+        "state": {
+          "status": "completed",
+          "input": {
+            "command": "printf opencode-sdk-tool-fixture"
+          },
+          "output": "opencode-sdk-tool-fixture",
+          "title": "printf opencode-sdk-tool-fixture",
+          "metadata": {
+            "output": "opencode-sdk-tool-fixture",
+            "exit": 0,
+            "truncated": false
+          },
+          "time": {
+            "start": 1786373387702,
+            "end": 1786373387769
+          }
+        }
+      },
+      {
+        "id": "prt_fec26b05c001P7nK0gyxkl87m6",
+        "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+        "messageID": "msg_fec26a108001tBqUCNnpBgXlsA",
+        "type": "tool",
+        "callID": "call_01_zoeRHOiHBZChAxs9Xkxf2897",
+        "tool": "question",
+        "state": {
+          "status": "completed",
+          "input": {
+            "questions": [
+              {
+                "question": "Which color do you prefer?",
+                "header": "Color choice",
+                "options": [
+                  {
+                    "label": "red",
+                    "description": "Choose red"
+                  },
+                  {
+                    "label": "blue",
+                    "description": "Choose blue"
+                  }
+                ]
+              }
+            ]
+          },
+          "output": "User has answered your questions: \"Which color do you prefer?\"=\"red\". You can now continue with the user's answers in mind.",
+          "title": "Asked 1 question",
+          "metadata": {
+            "answers": [
+              [
+                "red"
+              ]
+            ],
+            "truncated": false
+          },
+          "time": {
+            "start": 1786373387394,
+            "end": 1786373387507
+          }
+        }
+      },
+      {
+        "id": "prt_fec26b600001hoiN8QQoqGB6gY",
+        "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+        "messageID": "msg_fec26a108001tBqUCNnpBgXlsA",
+        "type": "step-finish",
+        "reason": "tool-calls",
+        "cost": 0,
+        "tokens": {
+          "total": 8853,
+          "input": 8490,
+          "output": 129,
+          "reasoning": 234,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "msg_fec26b60d001N14lOiwqlO7JQ7",
+      "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+      "role": "assistant",
+      "time": {
+        "created": 1786373387789,
+        "completed": 1786373429024
+      },
+      "parentID": "msg_fec269e1900110ArIQ24DcZ0rF",
+      "modelID": "big-pickle",
+      "providerID": "opencode",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "C:\\Users\\fixture-user\\AppData\\Local\\Temp\\opencode-codes-fixture",
+        "root": "/"
+      },
+      "cost": 0,
+      "tokens": {
+        "total": 8913,
+        "input": 76,
+        "output": 5,
+        "reasoning": 0,
+        "cache": {
+          "read": 8832,
+          "write": 0
+        }
+      },
+      "finish": "stop"
+    },
+    "parts": [
+      {
+        "id": "prt_fec274c76001Z7KgZCd8L4Ft3Q",
+        "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+        "messageID": "msg_fec26b60d001N14lOiwqlO7JQ7",
+        "type": "step-start"
+      },
+      {
+        "id": "prt_fec274ffd001vsNtVNPoqnjomt",
+        "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+        "messageID": "msg_fec26b60d001N14lOiwqlO7JQ7",
+        "type": "text",
+        "text": "You chose red.",
+        "time": {
+          "start": 1786373427197,
+          "end": 1786373429012
+        }
+      },
+      {
+        "id": "prt_fec275719001fsn0UEEwiuAcCm",
+        "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+        "messageID": "msg_fec26b60d001N14lOiwqlO7JQ7",
+        "type": "step-finish",
+        "reason": "stop",
+        "cost": 0,
+        "tokens": {
+          "total": 8913,
+          "input": 76,
+          "output": 5,
+          "reasoning": 0,
+          "cache": {
+            "read": 8832,
+            "write": 0
+          }
+        }
+      }
+    ]
+  }
+]

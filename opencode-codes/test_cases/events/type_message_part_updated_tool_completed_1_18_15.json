@@ -1,0 +1,33 @@
+{
+  "id": "evt_fec26b5fa001pRUY1cj7bqVNNc",
+  "type": "message.part.updated",
+  "properties": {
+    "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+    "part": {
+      "type": "tool",
+      "tool": "bash",
+      "callID": "call_00_QVUwrYVtnjWX4Gh1vD9L5073",
+      "state": {
+        "status": "completed",
+        "input": {
+          "command": "printf opencode-sdk-tool-fixture"
+        },
+        "output": "opencode-sdk-tool-fixture",
+        "metadata": {
+          "output": "opencode-sdk-tool-fixture",
+          "exit": 0,
+          "truncated": false
+        },
+        "title": "printf opencode-sdk-tool-fixture",
+        "time": {
+          "start": 1786373387702,
+          "end": 1786373387769
+        }
+      },
+      "id": "prt_fec26af93001DF1mIWlltRikxE",
+      "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+      "messageID": "msg_fec26a108001tBqUCNnpBgXlsA"
+    },
+    "time": 1786373387770
+  }
+}

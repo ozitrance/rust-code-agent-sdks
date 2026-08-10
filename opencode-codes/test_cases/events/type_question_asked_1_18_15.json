@@ -1,0 +1,28 @@
+{
+  "id": "evt_fec26b480002BKA5tFjcqhPSh6",
+  "type": "question.asked",
+  "properties": {
+    "id": "que_fec26b480001vsJ2Y507uda88Y",
+    "sessionID": "ses_013d9622affe0Ypk8tiISYxsY5",
+    "questions": [
+      {
+        "question": "Which color do you prefer?",
+        "header": "Color choice",
+        "options": [
+          {
+            "label": "red",
+            "description": "Choose red"
+          },
+          {
+            "label": "blue",
+            "description": "Choose blue"
+          }
+        ]
+      }
+    ],
+    "tool": {
+      "messageID": "msg_fec26a108001tBqUCNnpBgXlsA",
+      "callID": "call_01_zoeRHOiHBZChAxs9Xkxf2897"
+    }
+  }
+}
