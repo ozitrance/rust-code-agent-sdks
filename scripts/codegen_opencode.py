@@ -2,8 +2,9 @@
 """
 Generate Rust protocol types + samples for opencode-codes from the OpenAPI 3.1 snapshot.
 
-The snapshot at opencode-codes/tests/schemas/opencode_openapi.json (pulled live from
-`GET /doc` of opencode 1.18.5) is the source of truth for every wire type. This script
+The snapshot at opencode-codes/tests/schemas/opencode_openapi.json (pulled live
+from `GET /doc` of the opencode version tracked by the crate) is the source of
+truth for every wire type. This script
 walks `components.schemas` plus the request/response bodies and parameters of the six
 hand-wrapped endpoints and the `/event` SSE union, synthesizes named types for inline
 object / union shapes, and writes:
@@ -37,9 +38,41 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT = ROOT / "opencode-codes" / "tests" / "schemas" / "opencode_openapi.json"
+CARGO_TOML = ROOT / "opencode-codes" / "Cargo.toml"
 OUT_DIR = ROOT / "opencode-codes" / "src" / "protocol_generated"
 DOC = json.loads(SNAPSHOT.read_text())
 SCHEMAS: dict[str, Any] = dict(DOC["components"]["schemas"])
+
+
+def crate_version() -> str:
+    match = re.search(r'^version\s*=\s*"([^"]+)"', CARGO_TOML.read_text(), re.MULTILINE)
+    if match is None:
+        raise RuntimeError(f"could not read package version from {CARGO_TOML}")
+    return match.group(1)
+
+
+OPENCODE_VERSION = crate_version()
+
+# Small ergonomic surface intentionally kept stable across regenerations. These
+# names and defaults are part of the hand-written client's public examples.
+INLINE_STRING_ENUM_NAMES = {
+    "PermissionReplyParamsResponse": "PermissionReplyResponse",
+}
+SYNTH_NAME_OVERRIDES = {
+    # 1.18.15 inserted string branches before this object branch. Preserve the
+    # public 1.18.14 type name while broadening the enum around it.
+    "ProviderConfigModelsValueInterleavedVariant3": "ProviderConfigModelsValueInterleavedVariant1",
+}
+UNTAGGED_VARIANT_NAME_OVERRIDES = {
+    ("ProviderConfigModelsValueInterleaved", 1): "String",
+    ("ProviderConfigModelsValueInterleaved", 3): "Variant1",
+}
+DEDUP_UNTAGGED_BODIES = {"ProviderConfigModelsValueInterleaved"}
+DEFAULTABLE_STRUCTS = {
+    "PromptAsyncParams",
+    "SessionCreateParams",
+    "TextPartInput",
+}
 
 # ──────────────────────────────────────────────────────────────────────────
 # Synthetic request/response schemas for the six hand-wrapped endpoints.
@@ -211,7 +244,7 @@ def _register_synth(schema: Any, ctx: str) -> str:
     sig = json.dumps(schema, sort_keys=True)
     if sig in SYNTH_SIG:
         return SYNTH_SIG[sig]
-    ident = pascal(ctx)
+    ident = pascal(SYNTH_NAME_OVERRIDES.get(ctx, ctx))
     base = ident
     i = 2
     while ident in _used_names:
@@ -346,6 +379,8 @@ def type_expr(node: Any, ctx: str) -> str:
         name = _register_synth(synth, ctx)
         return f"Option<{name}>" if has_null else name
 
+    if t == "string" and "enum" in node and ctx in INLINE_STRING_ENUM_NAMES:
+        return _register_synth(node, INLINE_STRING_ENUM_NAMES[ctx])
     if t == "string":
         return "String"
     if t == "integer":
@@ -482,8 +517,11 @@ def _field_lines(props: dict[str, Any], required: set[str], ctx: str, indent: st
 
 def render_struct(name: str, schema: dict[str, Any]) -> str:
     rs: list[str] = _doc_lines(schema)
-    rs.append("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]")
     ident = rust_name(name)
+    if ident in DEFAULTABLE_STRUCTS:
+        rs.append("#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]")
+    else:
+        rs.append("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]")
     rs.append(f"pub struct {ident} {{")
     props = schema.get("properties") or {}
     if not props:
@@ -516,10 +554,26 @@ def render_string_enum_values(name: str, values: list[str], desc_schema: dict[st
             i += 1
         seen[vi] = v
     rs: list[str] = _doc_lines(desc_schema)
+    if ident == "PermissionReplyResponse":
+        rs += [
+            "/// Decision sent when replying to a permission request",
+            "/// (`POST /session/{sessionID}/permissions/{permissionID}`). The wire schema",
+            "/// pins this to `once` / `always` / `reject`; the [`Unknown`](Self::Unknown)",
+            "/// fallback preserves forward compatibility with newer server values.",
+        ]
     rs.append("#[derive(Debug, Clone, PartialEq, Eq, Hash)]")
     rs.append(f"pub enum {ident} {{")
+    permission_docs = {
+        "Once": "    /// Grant the permission for this request only.",
+        "Always": "    /// Grant the permission and remember the decision.",
+        "Reject": "    /// Deny the permission.",
+    }
     for vi in seen:
+        if ident == "PermissionReplyResponse":
+            rs.append(permission_docs[vi])
         rs.append(f"    {vi},")
+    if ident == "PermissionReplyResponse":
+        rs.append("    /// A value not known to this crate version.")
     rs.append("    Unknown(String),")
     rs.append("}")
     rs.append("")
@@ -611,6 +665,7 @@ def render_untagged_enum(name: str, schema: dict[str, Any]) -> str:
     rs.append(f"pub enum {ident} {{")
     branches = [b for b in union_branches(schema) if not (isinstance(b, dict) and b.get("type") == "null")]
     seen: set[str] = set()
+    seen_bodies: set[str] = set()
     for idx, b in enumerate(branches):
         tgt = ref_target(b)
         if tgt is not None:
@@ -620,6 +675,11 @@ def render_untagged_enum(name: str, schema: dict[str, Any]) -> str:
             body = type_expr(b, ident + f"Variant{idx}")
             title = b.get("title") if isinstance(b, dict) else None
             vi = pascal(str(title)) if title else f"Variant{idx}"
+        if name in DEDUP_UNTAGGED_BODIES:
+            if body in seen_bodies:
+                continue
+            seen_bodies.add(body)
+        vi = UNTAGGED_VARIANT_NAME_OVERRIDES.get((name, idx), vi)
         base = vi
         i = 2
         while vi in seen:
@@ -684,7 +744,9 @@ def render(name: str, schema: Any) -> str:
 def emit_types() -> str:
     out: list[str] = []
     out.append("// AUTO-GENERATED by scripts/codegen_opencode.py — DO NOT EDIT BY HAND.")
-    out.append("// Source: opencode-codes/tests/schemas/opencode_openapi.json (opencode 1.18.5).")
+    out.append(
+        f"// Source: opencode-codes/tests/schemas/opencode_openapi.json (opencode {OPENCODE_VERSION})."
+    )
     out.append("// Run `python3 scripts/codegen_opencode.py` to regenerate.")
     out.append("//")
     out.append("// Every schema in components.schemas is emitted, plus synthesized named types")
@@ -791,7 +853,7 @@ OUT_DIR.mkdir(exist_ok=True)
     "//! Generated serde models of the opencode OpenAPI 3.1 wire contract.\n"
     "//!\n"
     "//! AUTO-GENERATED by `scripts/codegen_opencode.py` from\n"
-    "//! `tests/schemas/opencode_openapi.json` (opencode 1.18.5). Do not edit by hand.\n"
+    f"//! `tests/schemas/opencode_openapi.json` (opencode {OPENCODE_VERSION}). Do not edit by hand.\n"
     "\n"
     "pub mod samples;\n"
     "pub mod types;\n"

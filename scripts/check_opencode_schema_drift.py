@@ -11,9 +11,11 @@ spawn `opencode serve` on a free port ourselves, or (with --url) talk to a serve
 someone already started.
 
 We reduce both the live document and our snapshot to a format-invariant
-fingerprint — the set of `paths` keys plus, per `components.schemas` entry, the
-set of property names appearing anywhere in that schema — and diff those. This
-ignores key ordering and pretty-printing so a re-fetch never shows spurious drift.
+contract fingerprint: path and operation sets, complete request/response
+operation shapes, and complete component schema shapes. Documentation-only
+fields are removed before comparison. This catches changes to unions, enums,
+required fields, request bodies, and responses while ignoring key ordering,
+pretty-printing, descriptions, summaries, and examples.
 
 Writes a structured Markdown report to stdout and exits:
   0 — no drift
@@ -164,58 +166,80 @@ def obtain_live_spec(args: argparse.Namespace) -> dict[str, Any]:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def _collect_property_keys(node: Any, acc: set[str]) -> None:
-    """Gather every property name appearing anywhere in a schema subtree, so
-    union (anyOf/oneOf) variant fields are captured alongside plain objects."""
+HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
+DOCUMENTATION_KEYS = {"description", "example", "examples", "externalDocs", "summary"}
+
+
+def _contract_shape(node: Any) -> Any:
+    """Return a deterministic, documentation-free OpenAPI contract subtree."""
     if isinstance(node, dict):
-        props = node.get("properties")
-        if isinstance(props, dict):
-            acc.update(props.keys())
-        for key, value in node.items():
-            if key == "properties":
-                continue
-            _collect_property_keys(value, acc)
-    elif isinstance(node, list):
-        for item in node:
-            _collect_property_keys(item, acc)
+        return {
+            key: _contract_shape(value)
+            for key, value in sorted(node.items())
+            if key not in DOCUMENTATION_KEYS
+        }
+    if isinstance(node, list):
+        return [_contract_shape(item) for item in node]
+    return node
 
 
 def fingerprint(doc: dict[str, Any]) -> dict[str, Any]:
-    paths = sorted((doc.get("paths") or {}).keys())
+    path_items = doc.get("paths") or {}
+    paths = sorted(path_items)
+    operations: dict[str, Any] = {}
+    for path, path_item in path_items.items():
+        if not isinstance(path_item, dict):
+            continue
+        inherited_parameters = path_item.get("parameters")
+        for method, operation in path_item.items():
+            if method.lower() not in HTTP_METHODS or not isinstance(operation, dict):
+                continue
+            shape: dict[str, Any] = {"operation": operation}
+            if inherited_parameters is not None:
+                shape["path_parameters"] = inherited_parameters
+            operations[f"{method.upper()} {path}"] = _contract_shape(shape)
+
     schemas = (doc.get("components") or {}).get("schemas") or {}
-    schema_props: dict[str, list[str]] = {}
-    for name, schema in schemas.items():
-        keys: set[str] = set()
-        _collect_property_keys(schema, keys)
-        schema_props[name] = sorted(keys)
-    return {"paths": paths, "schemas": schema_props}
+    return {
+        "paths": paths,
+        "operations": dict(sorted(operations.items())),
+        "schemas": {
+            name: _contract_shape(schema) for name, schema in sorted(schemas.items())
+        },
+    }
 
 
 def summarize_diff(snapshot_fp: dict[str, Any], live_fp: dict[str, Any]) -> dict[str, Any]:
     snap_paths = set(snapshot_fp["paths"])
     live_paths = set(live_fp["paths"])
 
+    snap_operations = snapshot_fp["operations"]
+    live_operations = live_fp["operations"]
+    snap_operation_names = set(snap_operations)
+    live_operation_names = set(live_operations)
+
     snap_schemas = snapshot_fp["schemas"]
     live_schemas = live_fp["schemas"]
     snap_names = set(snap_schemas)
     live_names = set(live_schemas)
 
-    schema_props_changed: dict[str, dict[str, list[str]]] = {}
-    for name in sorted(snap_names & live_names):
-        snap_keys = set(snap_schemas[name])
-        live_keys = set(live_schemas[name])
-        if snap_keys != live_keys:
-            schema_props_changed[name] = {
-                "added": sorted(live_keys - snap_keys),
-                "removed": sorted(snap_keys - live_keys),
-            }
-
     return {
         "paths_added": sorted(live_paths - snap_paths),
         "paths_removed": sorted(snap_paths - live_paths),
+        "operations_added": sorted(live_operation_names - snap_operation_names),
+        "operations_removed": sorted(snap_operation_names - live_operation_names),
+        "operations_changed": sorted(
+            name
+            for name in snap_operation_names & live_operation_names
+            if snap_operations[name] != live_operations[name]
+        ),
         "schemas_added": sorted(live_names - snap_names),
         "schemas_removed": sorted(snap_names - live_names),
-        "schema_props_changed": schema_props_changed,
+        "schemas_changed": sorted(
+            name
+            for name in snap_names & live_names
+            if snap_schemas[name] != live_schemas[name]
+        ),
     }
 
 
@@ -225,9 +249,12 @@ def has_drift(diff: dict[str, Any]) -> bool:
         for k in (
             "paths_added",
             "paths_removed",
+            "operations_added",
+            "operations_removed",
+            "operations_changed",
             "schemas_added",
             "schemas_removed",
-            "schema_props_changed",
+            "schemas_changed",
         )
     )
 
@@ -259,22 +286,12 @@ def render_markdown(diff: dict[str, Any], source: str) -> str:
     ]
     lines += _bullet_section("Paths added upstream", diff["paths_added"])
     lines += _bullet_section("Paths removed upstream", diff["paths_removed"])
+    lines += _bullet_section("Operations added upstream", diff["operations_added"])
+    lines += _bullet_section("Operations removed upstream", diff["operations_removed"])
+    lines += _bullet_section("Operations whose contract changed", diff["operations_changed"])
     lines += _bullet_section("Component schemas added upstream", diff["schemas_added"])
     lines += _bullet_section("Component schemas removed upstream", diff["schemas_removed"])
-
-    changed = diff["schema_props_changed"]
-    if changed:
-        lines.append(f"**Component schemas whose property set changed** ({len(changed)}):")
-        lines.append("")
-        for name, ch in list(changed.items())[:80]:
-            lines.append(f"- `{name}`")
-            if ch["added"]:
-                lines.append(f"  - added: {', '.join(f'`{k}`' for k in ch['added'])}")
-            if ch["removed"]:
-                lines.append(f"  - removed: {', '.join(f'`{k}`' for k in ch['removed'])}")
-        if len(changed) > 80:
-            lines.append(f"- ... and {len(changed) - 80} more")
-        lines.append("")
+    lines += _bullet_section("Component schemas whose contract changed", diff["schemas_changed"])
 
     lines.append("---")
     lines.append("")
@@ -293,7 +310,11 @@ def render_markdown(diff: dict[str, Any], source: str) -> str:
 
 
 def canonical_json(doc: dict[str, Any]) -> str:
-    return json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    # Preserve the server's schema/property order because code generation uses
+    # it to assign stable names to structurally deduplicated inline types. The
+    # drift fingerprint itself normalizes dictionaries, so comparison remains
+    # independent of wire ordering and whitespace.
+    return json.dumps(doc, separators=(",", ":"), ensure_ascii=False) + "\n"
 
 
 def write_snapshot(doc: dict[str, Any]) -> None:

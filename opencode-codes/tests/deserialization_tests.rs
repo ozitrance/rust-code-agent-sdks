@@ -17,7 +17,8 @@
 //! making the event-stream test a strong forward-compatibility tripwire.
 
 use opencode_codes::protocol_generated::types::{
-    Event, MessageWithParts, NotFoundError, Session, SessionStatus,
+    Event, MessageWithParts, ModelCapabilities2Interleaved, NotFoundError,
+    ProviderConfigModelsValueInterleaved, Session, SessionStatus,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -196,4 +197,37 @@ fn event_stream_every_frame_roundtrips() {
             "fixture regression: event type `{expected}` no longer present in capture"
         );
     }
+}
+
+#[test]
+fn opencode_1_18_15_interleaved_shapes_roundtrip() {
+    for (label, value) in [
+        ("boolean", serde_json::json!(true)),
+        ("known_string", serde_json::json!("reasoning_text")),
+        ("future_string", serde_json::json!("vendor_reasoning")),
+        (
+            "known_object_field",
+            serde_json::json!({"field": "reasoning_content"}),
+        ),
+        (
+            "future_object_field",
+            serde_json::json!({"field": "vendor_reasoning"}),
+        ),
+    ] {
+        let parsed: ProviderConfigModelsValueInterleaved = serde_json::from_value(value.clone())
+            .unwrap_or_else(|e| panic!("{label} failed to deserialize: {e}"));
+        assert_eq!(
+            serde_json::to_value(parsed).expect("interleaved value serializes"),
+            value,
+            "{label} did not round-trip"
+        );
+    }
+
+    let model_value = serde_json::json!({"field": "reasoning_text"});
+    let model: ModelCapabilities2Interleaved =
+        serde_json::from_value(model_value.clone()).expect("model capability object deserializes");
+    assert_eq!(
+        serde_json::to_value(model).expect("model capability serializes"),
+        model_value
+    );
 }

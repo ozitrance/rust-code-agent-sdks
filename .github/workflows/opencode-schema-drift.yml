@@ -7,8 +7,9 @@ name: opencode Schema Drift
 # opencode has no published schema file — its wire contract is served by the
 # running binary. We npm-install opencode, let the drift script spawn
 # `opencode serve` on a free port, fetch /doc, reduce it to a
-# format-invariant fingerprint (path set + per-schema property-key sets), and
-# diff against the snapshot. On drift we open (or update) an issue.
+# format-invariant contract fingerprint (operations plus complete component
+# schema shapes), and diff against the snapshot. On drift we open (or update)
+# an issue.
 #
 # Sibling of codex-schema-drift.yml / claude-schema-drift.yml; kept separate
 # because the source of truth is a locally-run server, not an upstream URL or a
@@ -113,7 +114,7 @@ jobs:
           {
             echo "## ✅ No opencode schema drift"
             echo
-            echo "The live \`/doc\` OpenAPI document's path set and per-schema"
-            echo "property keys match"
+            echo "The live \`/doc\` OpenAPI document's operations and complete"
+            echo "component schema shapes match"
             echo "\`opencode-codes/tests/schemas/opencode_openapi.json\`."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.15] - 2026-08-10
+
+### Changed
+
+- Track opencode CLI 1.18.15 and regenerate the OpenAPI bindings for its
+  broadened model reasoning/interleaving configuration shapes.
+- Compare complete operation and component-schema contract shapes in the
+  nightly drift check, so union, enum, required-field, request, and response
+  changes are detected even when path and property names stay unchanged.
+- Derive generated binding provenance comments from the crate version to keep
+  documentation synchronized with the release pin.
+
 ## [1.18.14] - 2026-08-07
 
 ### Changed
