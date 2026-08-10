@@ -65,6 +65,11 @@ opencode-codes = { version = "1.18", default-features = false, features = ["type
 opencode-codes = { version = "1.18", features = ["server"] }
 ```
 
+Managed servers expose `pid`, `is_running`, `wait_for_exit`, and a borrowed
+`shutdown` method. The existing consuming `stop` method remains available when
+the handle is no longer needed; dropping a live handle still tears down the
+whole process group.
+
 ## Protocol
 
 opencode exposes a REST + SSE surface. The conversation lifecycle:

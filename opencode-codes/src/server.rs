@@ -3,7 +3,8 @@
 //! [`ManagedServer`] spawns `opencode serve --hostname <host> --port <n>` on a
 //! free port (chosen with [`portpicker`] unless overridden), waits until the
 //! HTTP surface answers `GET /global/health`, exposes the bound base URL via
-//! [`ManagedServer::url`], and tears the process down on drop.
+//! [`ManagedServer::url`], exposes PID/wait/shutdown lifecycle controls, and
+//! tears the process down on drop.
 //!
 //! # Orphan cleanup
 //!
@@ -21,6 +22,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::ExitStatus;
 use std::process::Stdio;
 use std::time::Duration;
 use std::time::Instant;
@@ -191,6 +193,7 @@ impl ManagedServerBuilder {
 #[derive(Debug)]
 pub struct ManagedServer {
     child: Option<Child>,
+    exit_status: Option<ExitStatus>,
     base_url: String,
     port: u16,
     password: Option<String>,
@@ -285,6 +288,7 @@ impl ManagedServer {
 
         let server = Self {
             child: Some(child),
+            exit_status: None,
             base_url,
             port,
             password: builder.password,
@@ -388,13 +392,86 @@ impl ManagedServer {
         self.port
     }
 
+    /// Operating-system process id of the direct `opencode serve` child.
+    ///
+    /// Returns `None` after the child has been reaped by [`Self::is_running`],
+    /// [`Self::wait_for_exit`], or [`Self::shutdown`].
+    #[must_use]
+    pub fn pid(&self) -> Option<u32> {
+        self.child.as_ref().and_then(Child::id)
+    }
+
+    /// Cached exit status after the child has been reaped.
+    #[must_use]
+    pub fn exit_status(&self) -> Option<&ExitStatus> {
+        self.exit_status.as_ref()
+    }
+
     /// Whether the child process is still running (non-blocking check).
     ///
     /// Returns `false` once the server has been consumed by [`ManagedServer::stop`].
     pub fn is_running(&mut self) -> bool {
-        self.child
+        let Some(child) = self.child.as_mut() else {
+            return false;
+        };
+        match child.try_wait() {
+            Ok(None) => true,
+            Ok(Some(status)) => {
+                self.record_exit(status);
+                false
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Wait for the server to exit naturally and return its status.
+    ///
+    /// The result is cached, so repeated calls return the same status. Once the
+    /// direct child exits, any remaining Unix process-group members are killed
+    /// to prevent orphaned MCP/tool subprocesses.
+    pub async fn wait_for_exit(&mut self) -> Result<ExitStatus> {
+        if let Some(status) = &self.exit_status {
+            return Ok(*status);
+        }
+        let status = self
+            .child
             .as_mut()
-            .is_some_and(|child| matches!(child.try_wait(), Ok(None)))
+            .ok_or_else(|| Error::Server("managed server has no child process".to_string()))?
+            .wait()
+            .await
+            .map_err(|e| Error::Server(format!("awaiting managed server exit failed: {e}")))?;
+        self.record_exit(status);
+        Ok(status)
+    }
+
+    /// Terminate the server, await reaping, and return its exit status.
+    ///
+    /// Unlike [`Self::stop`], this borrows the server so owners can shut it down
+    /// without moving it out of a containing harness. Repeated calls return the
+    /// cached status.
+    pub async fn shutdown(&mut self) -> Result<ExitStatus> {
+        if let Some(status) = &self.exit_status {
+            return Ok(*status);
+        }
+
+        #[cfg(unix)]
+        if let Some(pgid) = self.pgid.take() {
+            signal_process_group(pgid, SIGTERM);
+            tokio::time::sleep(KILL_GRACE).await;
+            signal_process_group(pgid, SIGKILL);
+        }
+
+        let mut child = self
+            .child
+            .take()
+            .ok_or_else(|| Error::Server("managed server has no child process".to_string()))?;
+        let _ = child.start_kill();
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| Error::Server(format!("awaiting managed server exit failed: {e}")))?;
+        self.exit_status = Some(status);
+        Ok(status)
     }
 
     /// Terminate the server and await reaping of the child.
@@ -407,21 +484,21 @@ impl ManagedServer {
     /// Returns [`Error::Server`] only if awaiting the child fails; an
     /// already-exited process is not an error.
     pub async fn stop(mut self) -> Result<()> {
+        self.shutdown().await?;
+        Ok(())
+    }
+
+    fn record_exit(&mut self, status: ExitStatus) {
+        self.child.take();
+        self.exit_status = Some(status);
+
         #[cfg(unix)]
         if let Some(pgid) = self.pgid.take() {
+            // The group leader has exited. Any surviving group members are
+            // orphans from the managed server and should not outlive it.
             signal_process_group(pgid, SIGTERM);
-            tokio::time::sleep(KILL_GRACE).await;
             signal_process_group(pgid, SIGKILL);
         }
-
-        if let Some(mut child) = self.child.take() {
-            let _ = child.start_kill();
-            child
-                .wait()
-                .await
-                .map_err(|e| Error::Server(format!("awaiting managed server exit failed: {e}")))?;
-        }
-        Ok(())
     }
 }
 
@@ -555,6 +632,72 @@ mod tests {
         assert!(parse_listening_url("Warning: password not set", "127.0.0.1", 4096).is_none());
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wait_for_exit_caches_status_and_clears_pid() {
+        let child = Command::new("sh")
+            .arg("-c")
+            .arg("exit 7")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn short-lived child");
+        let mut server = ManagedServer {
+            child: Some(child),
+            exit_status: None,
+            base_url: "http://127.0.0.1:1".into(),
+            port: 1,
+            password: None,
+            pgid: None,
+        };
+
+        assert!(server.pid().is_some());
+        let status = server.wait_for_exit().await.expect("wait succeeds");
+        assert_eq!(status.code(), Some(7));
+        assert_eq!(server.exit_status().and_then(ExitStatus::code), Some(7));
+        assert!(server.pid().is_none());
+        assert!(!server.is_running());
+        assert_eq!(
+            server
+                .wait_for_exit()
+                .await
+                .expect("cached wait succeeds")
+                .code(),
+            Some(7)
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shutdown_is_borrowed_and_repeatable() {
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("sleep 30")
+            .kill_on_drop(true)
+            .process_group(0);
+        let child = command.spawn().expect("spawn long-lived child");
+        let pgid = child.id().map(|id| id as i32);
+        let mut server = ManagedServer {
+            child: Some(child),
+            exit_status: None,
+            base_url: "http://127.0.0.1:1".into(),
+            port: 1,
+            password: None,
+            pgid,
+        };
+
+        let original_pid = server.pid().expect("running child has pid");
+        let status = server.shutdown().await.expect("shutdown succeeds");
+        assert!(!status.success());
+        assert!(server.pid().is_none());
+        assert!(!server.is_running());
+        assert_eq!(
+            server.shutdown().await.expect("repeated shutdown succeeds"),
+            status
+        );
+        assert_ne!(original_pid, 0);
+    }
+
     /// Live smoke test: spawn the real `opencode` binary through
     /// [`ManagedServer`] and confirm it answers `GET /global/health`.
     ///
@@ -569,14 +712,16 @@ mod tests {
             format!("{home}/.local/opencode-npm/node_modules/.bin/opencode")
         });
 
-        let mut server = ManagedServer::builder()
+        let mut builder = ManagedServer::builder()
             .binary(binary)
-            .startup_timeout(Duration::from_secs(30))
-            .spawn()
-            .await
-            .expect("managed server should start");
+            .startup_timeout(Duration::from_secs(30));
+        if let Ok(port) = std::env::var("OPENCODE_PORT") {
+            builder = builder.port(port.parse().expect("OPENCODE_PORT must be a u16"));
+        }
+        let mut server = builder.spawn().await.expect("managed server should start");
 
         assert!(server.is_running());
+        assert!(server.pid().is_some());
         assert!(server.url().starts_with("http://127.0.0.1:"));
 
         let health = format!("{}/global/health", server.url());
@@ -590,6 +735,19 @@ mod tests {
             .expect("health body should be JSON");
         assert_eq!(body["healthy"], serde_json::Value::Bool(true));
 
-        server.stop().await.expect("server should stop cleanly");
+        let status = server
+            .shutdown()
+            .await
+            .expect("server should shut down cleanly");
+        assert!(!server.is_running());
+        assert!(server.pid().is_none());
+        assert_eq!(server.exit_status(), Some(&status));
+        assert_eq!(
+            server
+                .wait_for_exit()
+                .await
+                .expect("cached wait should succeed"),
+            status
+        );
     }
 }
