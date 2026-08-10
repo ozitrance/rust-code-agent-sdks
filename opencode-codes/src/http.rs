@@ -12,6 +12,8 @@
 //!   [`HttpTransport::request_unit`] send a JSON body (if any), apply auth and
 //!   the optional per-request timeout, and map any non-2xx status to
 //!   [`Error::Http`] carrying the server's response body.
+//! - **Raw observation** — an optional [`WireObserver`] receives the exact body
+//!   bytes sent and received without access to authentication headers.
 //!
 //! Path parameters (`{sessionID}`, `{permissionID}`, `{requestID}`) are percent-encoded against
 //! the RFC 3986 unreserved set before being placed into the path.
@@ -23,6 +25,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::error::{Error, Result};
+use crate::wire::{WireObservation, WireObserver};
 
 /// Default HTTP Basic auth username opencode expects when a server password is
 /// configured.
@@ -132,6 +135,7 @@ pub struct HttpTransport {
     timeout: Option<Duration>,
     auth: Option<BasicAuth>,
     scope: Scope,
+    observer: Option<WireObserver>,
 }
 
 impl HttpTransport {
@@ -148,6 +152,18 @@ impl HttpTransport {
         auth: Option<BasicAuth>,
         scope: Scope,
     ) -> Self {
+        Self::new_with_observer(client, base_url, timeout, auth, scope, None)
+    }
+
+    /// Bind a transport to a base URL and an optional raw wire observer.
+    pub fn new_with_observer(
+        client: Client,
+        base_url: impl Into<String>,
+        timeout: Option<Duration>,
+        auth: Option<BasicAuth>,
+        scope: Scope,
+        observer: Option<WireObserver>,
+    ) -> Self {
         let base_url = base_url.into().trim_end_matches('/').to_string();
         Self {
             client,
@@ -155,6 +171,7 @@ impl HttpTransport {
             timeout,
             auth,
             scope,
+            observer,
         }
     }
 
@@ -172,6 +189,11 @@ impl HttpTransport {
     /// the `GET /event` stream this transport builds.
     pub fn scope(&self) -> &Scope {
         &self.scope
+    }
+
+    /// Raw wire observer attached to this transport, if configured.
+    pub fn wire_observer(&self) -> Option<&WireObserver> {
+        self.observer.as_ref()
     }
 
     /// Append the configured [`Scope`] query parameters to `url`, given the
@@ -381,6 +403,16 @@ impl HttpTransport {
     /// Send a request and return the raw response body on 2xx, mapping any other
     /// status to [`Error::Http`].
     async fn send(&self, method: Method, url: &str, body: Option<Value>) -> Result<String> {
+        let method_name = method.as_str().to_string();
+        let body = body.map(|body| serde_json::to_vec(&body)).transpose()?;
+        if let Some(observer) = &self.observer {
+            observer.observe(WireObservation::HttpRequest {
+                method: method_name.clone(),
+                url: url.to_string(),
+                body: body.clone(),
+            });
+        }
+
         let mut builder = self.client.request(method, url);
         if let Some(timeout) = self.timeout {
             builder = builder.timeout(timeout);
@@ -389,11 +421,22 @@ impl HttpTransport {
             builder = builder.basic_auth(&auth.username, Some(&auth.password));
         }
         if let Some(body) = body {
-            builder = builder.json(&body);
+            builder = builder
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body);
         }
         let response = builder.send().await?;
         let status = response.status();
-        let text = response.text().await?;
+        let bytes = response.bytes().await?.to_vec();
+        if let Some(observer) = &self.observer {
+            observer.observe(WireObservation::HttpResponse {
+                method: method_name,
+                url: url.to_string(),
+                status: status.as_u16(),
+                body: bytes.clone(),
+            });
+        }
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         if status.is_success() {
             Ok(text)
         } else {

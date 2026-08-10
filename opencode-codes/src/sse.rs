@@ -6,6 +6,8 @@
 //! frame into the generated [`Event`] union and exposing the result as an async
 //! [`Stream`] (and an inherent [`EventStream::next`] for consumers that would
 //! rather not pull in `futures`/`tokio-stream`).
+//! [`EventStream::from_request_with_observer`] additionally exposes each raw
+//! SSE `data` payload before the generated [`Event`] decoder sees it.
 //!
 //! # Endpoints
 //!
@@ -79,6 +81,7 @@
 
 use crate::error::{Error, Result};
 use crate::protocol_generated::types::Event;
+use crate::wire::{WireObservation, WireObserver};
 use futures_core::Stream;
 use reqwest::{Client, RequestBuilder};
 use reqwest_eventsource::retry::ExponentialBackoff;
@@ -188,6 +191,7 @@ impl StreamEvent {
 /// items with [`EventStream::next`] or via its [`Stream`] implementation.
 pub struct EventStream {
     inner: EventSource,
+    observer: Option<WireObserver>,
 }
 
 impl EventStream {
@@ -248,12 +252,24 @@ impl EventStream {
     /// possible for requests carrying a non-replayable streaming body, which the
     /// `GET` event endpoints never do).
     pub fn from_request(builder: RequestBuilder, retry: RetryConfig) -> Result<Self> {
+        Self::from_request_with_observer(builder, retry, None)
+    }
+
+    /// Wrap a prepared SSE request and observe raw frames before typed decoding.
+    pub fn from_request_with_observer(
+        builder: RequestBuilder,
+        retry: RetryConfig,
+        observer: Option<WireObserver>,
+    ) -> Result<Self> {
         let mut source = EventSource::new(builder).map_err(|e| Error::Http {
             status: 0,
             body: format!("cannot prepare SSE request: {e}"),
         })?;
         source.set_retry_policy(Box::new(retry.into_policy()));
-        Ok(Self { inner: source })
+        Ok(Self {
+            inner: source,
+            observer,
+        })
     }
 
     /// Await the next decoded item, or `None` once the stream has closed.
@@ -293,9 +309,20 @@ impl Stream for EventStream {
         loop {
             match Pin::new(&mut this.inner).poll_next(cx) {
                 Poll::Ready(Some(Ok(EsEvent::Open))) => {
+                    if let Some(observer) = &this.observer {
+                        observer.observe(WireObservation::SseConnected);
+                    }
                     return Poll::Ready(Some(Ok(StreamEvent::Connected)));
                 }
                 Poll::Ready(Some(Ok(EsEvent::Message(message)))) => {
+                    if let Some(observer) = &this.observer {
+                        observer.observe(WireObservation::SseEvent {
+                            event: message.event.clone(),
+                            id: message.id.clone(),
+                            data: message.data.clone(),
+                            retry: message.retry,
+                        });
+                    }
                     return Poll::Ready(Some(decode_frame(&message.data)));
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -317,6 +344,7 @@ impl Stream for EventStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn retry_config_default_is_capped_and_unbounded() {
@@ -370,6 +398,81 @@ mod tests {
                 .unwrap();
         assert!(ev.as_event().is_some());
         assert!(!ev.is_connected());
+    }
+
+    #[tokio::test]
+    async fn wire_observer_sees_raw_sse_payload_before_decoding() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind SSE server");
+        let address = listener.local_addr().expect("SSE server address");
+        let payload =
+            r#"{"type":"session.idle","id":"evt_payload","properties":{"sessionID":"ses_raw"}}"#;
+        let response_payload = payload.to_string();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept SSE request");
+            let mut request = [0_u8; 1024];
+            let _ = socket.read(&mut request).await.expect("read SSE request");
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\nid: raw-id\nevent: opencode\nretry: 2500\ndata: {response_payload}\n\n"
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write SSE response");
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&observed);
+        let observer = WireObserver::new(move |observation| {
+            sink.lock().expect("observer lock").push(observation);
+        });
+        let mut stream = EventStream::from_request_with_observer(
+            Client::new().get(format!("http://{address}/event")),
+            RetryConfig::default(),
+            Some(observer),
+        )
+        .expect("build SSE stream");
+
+        assert!(stream
+            .next()
+            .await
+            .expect("connected item")
+            .expect("connected result")
+            .is_connected());
+        assert!(matches!(
+            stream
+                .next()
+                .await
+                .expect("event item")
+                .expect("event result"),
+            StreamEvent::Event(_)
+        ));
+        server.abort();
+
+        let observed = observed.lock().expect("observer lock");
+        assert!(matches!(
+            observed.first(),
+            Some(WireObservation::SseConnected)
+        ));
+        match observed.get(1) {
+            Some(WireObservation::SseEvent {
+                event,
+                id,
+                data,
+                retry,
+            }) => {
+                assert_eq!(event, "opencode");
+                assert_eq!(id, "raw-id");
+                assert_eq!(data, payload);
+                assert_eq!(*retry, Some(Duration::from_millis(2500)));
+            }
+            other => panic!("expected raw SSE observation, got {other:?}"),
+        }
     }
 
     // Live tests: require a running opencode server. Run with:

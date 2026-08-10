@@ -18,6 +18,8 @@
 //! **Server-Sent Events** (SSE) stream. This crate models that server's OpenAPI
 //! 3.1 wire contract with serde types, and offers an async (Tokio) client plus a
 //! managed launcher for the `opencode serve` process.
+//! An optional [`WireObserver`] captures exact REST body bytes and raw SSE data
+//! payloads before typed decoding without exposing authentication headers.
 //!
 //! # Architecture
 //!
@@ -30,6 +32,8 @@
 //!   session-v2 reply routes).
 //! - **SSE** — `GET /event` is a long-lived event stream carrying incremental
 //!   message parts, tool activity, and permission requests.
+//! - **Wire observation** — a shared callback can journal outbound REST bodies,
+//!   inbound REST bodies, connection markers, and pre-deserialization SSE data.
 //!
 //! The conversation lifecycle is:
 //!
@@ -82,6 +86,12 @@ pub use error::{Error, Result};
 
 #[cfg(feature = "async-client")]
 pub mod http;
+
+#[cfg(feature = "async-client")]
+pub mod wire;
+
+#[cfg(feature = "async-client")]
+pub use wire::{WireObservation, WireObserver};
 
 #[cfg(feature = "async-client")]
 pub mod sse;

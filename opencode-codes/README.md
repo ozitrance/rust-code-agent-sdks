@@ -147,6 +147,29 @@ async fn main() -> opencode_codes::Result<()> {
 }
 ```
 
+## Raw wire observation
+
+Attach a `WireObserver` when exact request, response, and SSE evidence must be
+persisted. The same observer follows streams opened through
+`OpencodeClient::event_stream`:
+
+```rust,ignore
+use opencode_codes::WireObserver;
+
+let observer = WireObserver::new(|observation| {
+    // Keep this callback fast; enqueue onto your own channel or journal.
+    println!("{observation:?}");
+});
+let client = OpencodeClient::builder()
+    .base_url("http://127.0.0.1:41999")
+    .wire_observer(observer)
+    .build()?;
+```
+
+REST bodies are the exact bytes sent or received. SSE observations preserve the
+parser-delivered `data` string before typed decoding, including for recognized
+events. Basic-auth headers are intentionally never exposed.
+
 ## Provenance
 
 Module layout, SSE handling, and server-lifecycle lessons were informed by the

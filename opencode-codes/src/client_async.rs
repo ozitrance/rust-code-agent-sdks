@@ -41,6 +41,7 @@ use crate::protocol_generated::types::{
     QuestionV2Reply, Session, SessionCreateParams, SessionForkParams,
 };
 use crate::sse::{EventStream, RetryConfig};
+use crate::wire::WireObserver;
 
 /// Base URL of a default local `opencode serve` instance.
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:4096";
@@ -78,7 +79,11 @@ impl OpencodeClient {
     ///
     /// Returns [`crate::Error`] if the request cannot be prepared for streaming.
     pub fn event_stream(&self, retry: RetryConfig) -> Result<EventStream> {
-        EventStream::from_request(self.transport.event_request(), retry)
+        EventStream::from_request_with_observer(
+            self.transport.event_request(),
+            retry,
+            self.transport.wire_observer().cloned(),
+        )
     }
 
     /// Create a new session — `POST /session`.
@@ -396,6 +401,7 @@ pub struct OpencodeClientBuilder {
     timeout: Option<Duration>,
     client: Option<Client>,
     scope: Scope,
+    observer: Option<WireObserver>,
 }
 
 impl Default for OpencodeClientBuilder {
@@ -406,6 +412,7 @@ impl Default for OpencodeClientBuilder {
             timeout: None,
             client: None,
             scope: Scope::default(),
+            observer: None,
         }
     }
 }
@@ -489,6 +496,13 @@ impl OpencodeClientBuilder {
         self
     }
 
+    /// Observe exact REST bodies and pre-deserialization SSE payloads.
+    #[must_use]
+    pub fn wire_observer(mut self, observer: WireObserver) -> Self {
+        self.observer = Some(observer);
+        self
+    }
+
     /// Build the [`OpencodeClient`].
     ///
     /// # Errors
@@ -500,8 +514,14 @@ impl OpencodeClientBuilder {
             Some(client) => client,
             None => Client::builder().build()?,
         };
-        let transport =
-            HttpTransport::new(client, self.base_url, self.timeout, self.auth, self.scope);
+        let transport = HttpTransport::new_with_observer(
+            client,
+            self.base_url,
+            self.timeout,
+            self.auth,
+            self.scope,
+            self.observer,
+        );
         Ok(OpencodeClient { transport })
     }
 }
@@ -510,6 +530,8 @@ impl OpencodeClientBuilder {
 mod unit_tests {
     use super::*;
     use crate::protocol_generated::types::{PermissionV2Reply, QuestionV2Answer};
+    use crate::wire::{WireObservation, WireObserver};
+    use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio::task::JoinHandle;
@@ -517,6 +539,14 @@ mod unit_tests {
     async fn mock_client(
         status: &str,
         response_body: &str,
+    ) -> (OpencodeClient, JoinHandle<String>) {
+        mock_client_with_observer(status, response_body, None).await
+    }
+
+    async fn mock_client_with_observer(
+        status: &str,
+        response_body: &str,
+        observer: Option<WireObserver>,
     ) -> (OpencodeClient, JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -561,10 +591,11 @@ mod unit_tests {
                 .expect("write response");
             String::from_utf8(bytes).expect("request is utf-8")
         });
-        let client = OpencodeClient::builder()
-            .base_url(format!("http://{address}"))
-            .build()
-            .expect("build client");
+        let mut builder = OpencodeClient::builder().base_url(format!("http://{address}"));
+        if let Some(observer) = observer {
+            builder = builder.wire_observer(observer);
+        }
+        let client = builder.build().expect("build client");
         (client, request)
     }
 
@@ -694,6 +725,60 @@ mod unit_tests {
             request.ends_with("\r\n\r\n"),
             "rejection should have no body"
         );
+    }
+
+    #[tokio::test]
+    async fn wire_observer_sees_the_exact_http_bodies() {
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&observed);
+        let observer = WireObserver::new(move |observation| {
+            sink.lock().expect("observer lock").push(observation);
+        });
+        let (client, request) = mock_client_with_observer("200 OK", "true", Some(observer)).await;
+
+        client
+            .reply_permission(
+                "per_one",
+                &PermissionReplyRequest {
+                    message: Some("capture this".into()),
+                    reply: PermissionV2Reply::Once,
+                },
+            )
+            .await
+            .expect("observed request succeeds");
+        let request = request.await.expect("capture request");
+        let sent_body = request
+            .split_once("\r\n\r\n")
+            .expect("request body delimiter")
+            .1
+            .as_bytes()
+            .to_vec();
+        let observed = observed.lock().expect("observer lock");
+
+        assert_eq!(observed.len(), 2);
+        match &observed[0] {
+            WireObservation::HttpRequest {
+                method, url, body, ..
+            } => {
+                assert_eq!(method, "POST");
+                assert!(url.ends_with("/permission/per_one/reply"));
+                assert_eq!(body.as_ref(), Some(&sent_body));
+            }
+            other => panic!("expected request observation, got {other:?}"),
+        }
+        match &observed[1] {
+            WireObservation::HttpResponse {
+                method,
+                status,
+                body,
+                ..
+            } => {
+                assert_eq!(method, "POST");
+                assert_eq!(*status, 200);
+                assert_eq!(body, b"true");
+            }
+            other => panic!("expected response observation, got {other:?}"),
+        }
     }
 }
 

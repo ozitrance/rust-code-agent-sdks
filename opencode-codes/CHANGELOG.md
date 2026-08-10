@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `fork_session_at` and `fork_session_with` for OpenCode's optional
   message-boundary session forks while preserving whole-session
   `fork_session` behavior.
+- `WireObserver` for exact outbound/inbound REST bodies and raw SSE `data`
+  payloads before typed decoding; client-created event streams inherit the same
+  observer and authentication headers are never exposed.
 
 ## [1.18.15] - 2026-08-10
 
