@@ -13,7 +13,7 @@
 //!   the optional per-request timeout, and map any non-2xx status to
 //!   [`Error::Http`] carrying the server's response body.
 //!
-//! Path parameters (`{sessionID}`, `{permissionID}`) are percent-encoded against
+//! Path parameters (`{sessionID}`, `{permissionID}`, `{requestID}`) are percent-encoded against
 //! the RFC 3986 unreserved set before being placed into the path.
 
 use std::time::Duration;
@@ -260,6 +260,88 @@ impl HttpTransport {
         url
     }
 
+    /// URL for `GET /permission`.
+    pub fn permissions_url(&self) -> String {
+        let mut url = format!("{}/permission", self.base_url);
+        let mut sep = '?';
+        self.append_scope(&mut url, &mut sep);
+        url
+    }
+
+    /// URL for `POST /permission/{requestID}/reply`.
+    pub fn permission_reply_url(&self, request_id: &str) -> String {
+        let mut url = format!(
+            "{}/permission/{}/reply",
+            self.base_url,
+            encode_segment(request_id)
+        );
+        let mut sep = '?';
+        self.append_scope(&mut url, &mut sep);
+        url
+    }
+
+    /// URL for `GET /question`.
+    pub fn questions_url(&self) -> String {
+        let mut url = format!("{}/question", self.base_url);
+        let mut sep = '?';
+        self.append_scope(&mut url, &mut sep);
+        url
+    }
+
+    /// URL for `POST /question/{requestID}/reply`.
+    pub fn question_reply_url(&self, request_id: &str) -> String {
+        let mut url = format!(
+            "{}/question/{}/reply",
+            self.base_url,
+            encode_segment(request_id)
+        );
+        let mut sep = '?';
+        self.append_scope(&mut url, &mut sep);
+        url
+    }
+
+    /// URL for `POST /question/{requestID}/reject`.
+    pub fn question_reject_url(&self, request_id: &str) -> String {
+        let mut url = format!(
+            "{}/question/{}/reject",
+            self.base_url,
+            encode_segment(request_id)
+        );
+        let mut sep = '?';
+        self.append_scope(&mut url, &mut sep);
+        url
+    }
+
+    /// URL for `POST /api/session/{sessionID}/permission/{requestID}/reply`.
+    pub fn permission_v2_reply_url(&self, session_id: &str, request_id: &str) -> String {
+        format!(
+            "{}/api/session/{}/permission/{}/reply",
+            self.base_url,
+            encode_segment(session_id),
+            encode_segment(request_id)
+        )
+    }
+
+    /// URL for `POST /api/session/{sessionID}/question/{requestID}/reply`.
+    pub fn question_v2_reply_url(&self, session_id: &str, request_id: &str) -> String {
+        format!(
+            "{}/api/session/{}/question/{}/reply",
+            self.base_url,
+            encode_segment(session_id),
+            encode_segment(request_id)
+        )
+    }
+
+    /// URL for `POST /api/session/{sessionID}/question/{requestID}/reject`.
+    pub fn question_v2_reject_url(&self, session_id: &str, request_id: &str) -> String {
+        format!(
+            "{}/api/session/{}/question/{}/reject",
+            self.base_url,
+            encode_segment(session_id),
+            encode_segment(request_id)
+        )
+    }
+
     /// URL for `POST /session/{sessionID}/permissions/{permissionID}`.
     pub fn permission_url(&self, session_id: &str, permission_id: &str) -> String {
         let mut url = format!(
@@ -338,5 +420,68 @@ impl HttpTransport {
     pub async fn request_unit(&self, method: Method, url: &str, body: Option<Value>) -> Result<()> {
         self.send(method, url, body).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scoped_transport() -> HttpTransport {
+        HttpTransport::new(
+            Client::new(),
+            "http://127.0.0.1:4096/",
+            None,
+            None,
+            Scope {
+                directory: Some("/tmp/a project".into()),
+                workspace: Some("ws/one".into()),
+            },
+        )
+    }
+
+    #[test]
+    fn primary_request_urls_are_scoped_and_encoded() {
+        let transport = scoped_transport();
+        let scope = "?directory=%2Ftmp%2Fa%20project&workspace=ws%2Fone";
+
+        assert_eq!(
+            transport.permissions_url(),
+            format!("http://127.0.0.1:4096/permission{scope}")
+        );
+        assert_eq!(
+            transport.permission_reply_url("per/a b"),
+            format!("http://127.0.0.1:4096/permission/per%2Fa%20b/reply{scope}")
+        );
+        assert_eq!(
+            transport.questions_url(),
+            format!("http://127.0.0.1:4096/question{scope}")
+        );
+        assert_eq!(
+            transport.question_reply_url("que/a b"),
+            format!("http://127.0.0.1:4096/question/que%2Fa%20b/reply{scope}")
+        );
+        assert_eq!(
+            transport.question_reject_url("que/a b"),
+            format!("http://127.0.0.1:4096/question/que%2Fa%20b/reject{scope}")
+        );
+    }
+
+    #[test]
+    fn v2_request_urls_encode_ids_without_primary_scope() {
+        let transport = scoped_transport();
+
+        assert_eq!(
+            transport.permission_v2_reply_url("ses/a", "per b"),
+            "http://127.0.0.1:4096/api/session/ses%2Fa/permission/per%20b/reply"
+        );
+        assert_eq!(
+            transport.question_v2_reply_url("ses/a", "que b"),
+            "http://127.0.0.1:4096/api/session/ses%2Fa/question/que%20b/reply"
+        );
+        assert_eq!(
+            transport.question_v2_reject_url("ses/a", "que b"),
+            "http://127.0.0.1:4096/api/session/ses%2Fa/question/que%20b/reject"
+        );
     }
 }

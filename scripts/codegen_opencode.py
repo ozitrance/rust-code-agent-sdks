@@ -5,7 +5,7 @@ Generate Rust protocol types + samples for opencode-codes from the OpenAPI 3.1 s
 The snapshot at opencode-codes/tests/schemas/opencode_openapi.json (pulled live
 from `GET /doc` of the opencode version tracked by the crate) is the source of
 truth for every wire type. This script
-walks `components.schemas` plus the request/response bodies and parameters of the six
+walks `components.schemas` plus the request/response bodies and parameters of the
 hand-wrapped endpoints and the `/event` SSE union, synthesizes named types for inline
 object / union shapes, and writes:
 
@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -70,12 +71,13 @@ UNTAGGED_VARIANT_NAME_OVERRIDES = {
 DEDUP_UNTAGGED_BODIES = {"ProviderConfigModelsValueInterleaved"}
 DEFAULTABLE_STRUCTS = {
     "PromptAsyncParams",
+    "SessionForkParams",
     "SessionCreateParams",
     "TextPartInput",
 }
 
 # ──────────────────────────────────────────────────────────────────────────
-# Synthetic request/response schemas for the six hand-wrapped endpoints.
+# Synthetic request/response schemas for the hand-wrapped endpoints.
 # The bodies are inline in the spec; naming them gives client authors concrete
 # types and anchors the reachable-set closure.
 # ──────────────────────────────────────────────────────────────────────────
@@ -97,9 +99,29 @@ if _create:
 _prompt = _json_body(_endpoint("/session/{sessionID}/prompt_async", "post"))
 if _prompt:
     SYNTHETIC_ENDPOINT_TYPES["PromptAsyncParams"] = _prompt
+_fork = _json_body(_endpoint("/session/{sessionID}/fork", "post"))
+if _fork:
+    SYNTHETIC_ENDPOINT_TYPES["SessionForkParams"] = _fork
 _perm = _json_body(_endpoint("/session/{sessionID}/permissions/{permissionID}", "post"))
 if _perm:
     SYNTHETIC_ENDPOINT_TYPES["PermissionReplyParams"] = _perm
+_permission_reply = _json_body(_endpoint("/permission/{requestID}/reply", "post"))
+if _permission_reply:
+    # This inline enum is the same contract as the named v2 reply component.
+    # Reuse it so both reply surfaces expose one decision type.
+    _permission_reply = deepcopy(_permission_reply)
+    _permission_reply["properties"]["reply"] = {
+        "$ref": "#/components/schemas/PermissionV2Reply"
+    }
+    SYNTHETIC_ENDPOINT_TYPES["PermissionReplyRequest"] = _permission_reply
+_permission_v2_reply = _json_body(
+    _endpoint("/api/session/{sessionID}/permission/{requestID}/reply", "post")
+)
+if _permission_v2_reply:
+    SYNTHETIC_ENDPOINT_TYPES["PermissionV2ReplyParams"] = _permission_v2_reply
+_question_reply = _json_body(_endpoint("/question/{requestID}/reply", "post"))
+if _question_reply:
+    SYNTHETIC_ENDPOINT_TYPES["QuestionReplyParams"] = _question_reply
 # GET /session/{sessionID}/message -> array of {info: Message, parts: [Part]}.
 _msg_op = _endpoint("/session/{sessionID}/message", "get")
 _msg_item = (
@@ -152,9 +174,18 @@ ENDPOINT_SEED |= {"Session", "Message", "Part", "Event", "PermissionRuleset", "O
 for _path, _method in [
     ("/session", "post"),
     ("/session/{sessionID}/prompt_async", "post"),
+    ("/session/{sessionID}/fork", "post"),
     ("/session/{sessionID}/message", "get"),
     ("/session/{sessionID}/abort", "post"),
     ("/session/{sessionID}/permissions/{permissionID}", "post"),
+    ("/permission", "get"),
+    ("/permission/{requestID}/reply", "post"),
+    ("/question", "get"),
+    ("/question/{requestID}/reply", "post"),
+    ("/question/{requestID}/reject", "post"),
+    ("/api/session/{sessionID}/permission/{requestID}/reply", "post"),
+    ("/api/session/{sessionID}/question/{requestID}/reply", "post"),
+    ("/api/session/{sessionID}/question/{requestID}/reject", "post"),
     ("/event", "get"),
 ]:
     collect_refs(_endpoint(_path, _method), ENDPOINT_SEED)
@@ -750,7 +781,7 @@ def emit_types() -> str:
     out.append("// Run `python3 scripts/codegen_opencode.py` to regenerate.")
     out.append("//")
     out.append("// Every schema in components.schemas is emitted, plus synthesized named types")
-    out.append("// for the six hand-wrapped endpoints' inline request/response bodies and for")
+    out.append("// for hand-wrapped endpoints' inline request/response bodies and for")
     out.append("// inline object / union field shapes. Discriminated unions become internally-")
     out.append("// tagged serde enums; all-string unions become open enums with Unknown(String);")
     out.append("// remaining unions are #[serde(untagged)] with branch order preserved. Inline")
@@ -819,7 +850,11 @@ def sample_for(schema: Any, depth: int = 0) -> Any:
 ENDPOINT_SAMPLES = [
     ("SessionCreateParams", "SessionCreateParams"),
     ("PromptAsyncParams", "PromptAsyncParams"),
+    ("SessionForkParams", "SessionForkParams"),
     ("PermissionReplyParams", "PermissionReplyParams"),
+    ("PermissionReplyRequest", "PermissionReplyRequest"),
+    ("PermissionV2ReplyParams", "PermissionV2ReplyParams"),
+    ("QuestionReplyParams", "QuestionReplyParams"),
     ("Session", "Session"),
     ("MessageWithParts", "MessageWithParts"),
     ("Event", "Event"),
@@ -832,8 +867,8 @@ def emit_samples() -> str:
     out.append("")
     out.append("use serde_json::{json, Value};")
     out.append("")
-    out.append("/// Minimal valid JSON samples for the primary types of the six hand-wrapped")
-    out.append("/// endpoints, keyed by generated Rust type name. For round-trip tests.")
+    out.append("/// Minimal valid JSON samples for the primary hand-wrapped endpoint types,")
+    out.append("/// keyed by generated Rust type name. For round-trip tests.")
     out.append("pub fn endpoint_samples() -> Vec<(&'static str, Value)> {")
     out.append("    vec![")
     for label, sname in ENDPOINT_SAMPLES:

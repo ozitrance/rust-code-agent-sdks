@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Typed current and v2 permission reply methods, pending-permission listing,
+  and typed question list/reply/reject methods for both API generations.
+- `fork_session_at` and `fork_session_with` for OpenCode's optional
+  message-boundary session forks while preserving whole-session
+  `fork_session` behavior.
+
 ## [1.18.15] - 2026-08-10
 
 ### Changed

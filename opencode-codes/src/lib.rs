@@ -26,7 +26,8 @@
 //! - **REST** — session lifecycle and prompt submission are ordinary JSON
 //!   request/response calls (`POST /session`, `POST /session/{sessionID}/prompt_async`,
 //!   `GET /session/{sessionID}/message`, `POST /session/{sessionID}/abort`,
-//!   `POST /session/{sessionID}/permissions/{permissionID}`).
+//!   `POST /permission/{requestID}/reply`, and the corresponding question and
+//!   session-v2 reply routes).
 //! - **SSE** — `GET /event` is a long-lived event stream carrying incremental
 //!   message parts, tool activity, and permission requests.
 //!
@@ -36,16 +37,16 @@
 //! 2. **Subscribe** — open the `GET /event` SSE stream.
 //! 3. **Prompt** — `POST /session/{sessionID}/prompt_async` returns immediately;
 //!    the agent's work is observed on the SSE stream.
-//! 4. **Handle permissions** — a permission request arrives on the stream; the
-//!    reply is a *separate* REST call
-//!    (`POST /session/{sessionID}/permissions/{permissionID}`). Correlating a
-//!    request to its reply is the consumer's responsibility — the pending
-//!    permission surface is kept explicit rather than hidden behind a callback.
+//! 4. **Handle permissions and questions** — requests arrive on the stream;
+//!    list pending requests and answer through separate typed REST calls.
+//!    Correlating a request to its reply is the consumer's responsibility —
+//!    pending requests stay explicit rather than hidden behind callbacks.
 //! 5. **Reconcile** — SSE is best-effort and must not be trusted alone. Poll
 //!    `GET /session/{sessionID}/message` to reconcile the authoritative message
 //!    state against what the stream delivered. This crate documents and exposes
 //!    that poll path deliberately.
 //! 6. **Abort** — `POST /session/{sessionID}/abort` cancels in-flight work.
+//! 7. **Fork** — copy the complete session or cut at a specific `messageID`.
 //!
 //! Authentication is HTTP Basic when `OPENCODE_SERVER_PASSWORD` is set; the
 //! username defaults to `"opencode"`.

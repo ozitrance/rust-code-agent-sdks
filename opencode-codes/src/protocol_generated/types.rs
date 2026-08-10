@@ -3,7 +3,7 @@
 // Run `python3 scripts/codegen_opencode.py` to regenerate.
 //
 // Every schema in components.schemas is emitted, plus synthesized named types
-// for the six hand-wrapped endpoints' inline request/response bodies and for
+// for hand-wrapped endpoints' inline request/response bodies and for
 // inline object / union field shapes. Discriminated unions become internally-
 // tagged serde enums; all-string unions become open enums with Unknown(String);
 // remaining unions are #[serde(untagged)] with branch order preserved. Inline
@@ -4177,6 +4177,13 @@ pub struct PermissionReplyParams {
     pub response: PermissionReplyResponse,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PermissionReplyRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    pub reply: PermissionV2Reply,
+}
+
 /// Decision sent when replying to a permission request
 /// (`POST /session/{sessionID}/permissions/{permissionID}`). The wire schema
 /// pins this to `once` / `always` / `reject`; the [`Unknown`](Self::Unknown)
@@ -4421,6 +4428,13 @@ impl<'de> Deserialize<'de> for PermissionV2Reply {
         let s = String::deserialize(deserializer)?;
         Ok(Self::from(s.as_str()))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PermissionV2ReplyParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    pub reply: PermissionV2Reply,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5373,6 +5387,11 @@ pub struct QuestionReplied2Data {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionReplyParams {
+    pub answers: Vec<QuestionAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QuestionRequest {
     pub id: String,
     pub questions: Vec<QuestionInfo>,
@@ -5922,6 +5941,12 @@ pub struct SessionErrorUnknown {
     pub message: String,
     #[serde(rename = "type")]
     pub type_: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SessionForkParams {
+    #[serde(rename = "messageID", default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

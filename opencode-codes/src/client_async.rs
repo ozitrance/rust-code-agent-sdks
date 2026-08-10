@@ -1,7 +1,7 @@
 //! High-level async client for the opencode server.
 //!
 //! [`OpencodeClient`] wraps the low-level [`crate::http::HttpTransport`] with
-//! typed methods for the six hand-wrapped endpoints. Construct one with
+//! typed methods for session, prompt, permission, and question endpoints. Construct one with
 //! [`OpencodeClient::builder`]:
 //!
 //! ```rust,ignore
@@ -36,7 +36,9 @@ use serde_json::Value;
 use crate::error::Result;
 use crate::http::{BasicAuth, HttpTransport, Scope};
 use crate::protocol_generated::types::{
-    MessageWithParts, PermissionReplyParams, PromptAsyncParams, Session, SessionCreateParams,
+    MessageWithParts, PermissionReplyParams, PermissionReplyRequest, PermissionRequest,
+    PermissionV2ReplyParams, PromptAsyncParams, QuestionReplyParams, QuestionRequest,
+    QuestionV2Reply, Session, SessionCreateParams, SessionForkParams,
 };
 use crate::sse::{EventStream, RetryConfig};
 
@@ -140,14 +142,38 @@ impl OpencodeClient {
 
     /// Fork a session — `POST /session/{sessionID}/fork`.
     ///
-    /// Branches the source session's **whole history** into a new session and
-    /// returns the freshly created [`Session`] (server-assigned id); the
-    /// source is left untouched. The 1.18.x spec exposes no at-point cut on
-    /// this route — for fork-at-a-turn semantics see `codex-codes`'
-    /// `thread_fork` with `last_turn_id`.
+    /// Branches the source session's whole history into a new session. To fork
+    /// at a specific message, use [`OpencodeClient::fork_session_at`].
     pub async fn fork_session(&self, session_id: &str) -> Result<Session> {
+        self.fork_session_with(session_id, &SessionForkParams::default())
+            .await
+    }
+
+    /// Fork a session at `message_id` — `POST /session/{sessionID}/fork`.
+    pub async fn fork_session_at(&self, session_id: &str, message_id: &str) -> Result<Session> {
+        self.fork_session_with(
+            session_id,
+            &SessionForkParams {
+                message_id: Some(message_id.to_string()),
+            },
+        )
+        .await
+    }
+
+    /// Parameterized session fork. An absent `messageID` copies the complete
+    /// history; a present one cuts the new session at that message.
+    pub async fn fork_session_with(
+        &self,
+        session_id: &str,
+        params: &SessionForkParams,
+    ) -> Result<Session> {
+        let body = serde_json::to_value(params)?;
         self.transport
-            .request_json(Method::POST, &self.transport.fork_url(session_id), None)
+            .request_json(
+                Method::POST,
+                &self.transport.fork_url(session_id),
+                Some(body),
+            )
             .await
     }
 
@@ -166,13 +192,8 @@ impl OpencodeClient {
     /// # Deprecation
     ///
     /// In the 1.18.5 spec this route (operation `permission.respond`) is marked
-    /// **deprecated** in favor of the newer reply endpoints
-    /// `POST /permission/{requestID}/reply` (operation `permission.reply`) and
-    /// `POST /api/session/{sessionID}/permission/{requestID}/reply` (operation
-    /// `v2.session.permission.reply`), neither of which this crate wraps yet.
-    /// Reach either through the raw [`OpencodeClient::request`] escape hatch using
-    /// those exact paths — note the session-scoped one requires the `/api/`
-    /// prefix. This deprecated route remains the reply channel for the
+    /// **deprecated** in favor of [`OpencodeClient::reply_permission`] and
+    /// [`OpencodeClient::reply_permission_v2`]. This route remains the reply channel for the
     /// `permission.asked` event and works on 1.18.5; a future opencode release
     /// may remove it.
     ///
@@ -212,6 +233,121 @@ impl OpencodeClient {
                 Method::POST,
                 &self.transport.permission_url(session_id, permission_id),
                 Some(body),
+            )
+            .await
+    }
+
+    /// List pending permission requests — `GET /permission`.
+    pub async fn list_permissions(&self) -> Result<Vec<PermissionRequest>> {
+        self.transport
+            .request_json(Method::GET, &self.transport.permissions_url(), None)
+            .await
+    }
+
+    /// Reply to a current permission request —
+    /// `POST /permission/{requestID}/reply`.
+    ///
+    /// Pair this with `permission.asked` events or [`Self::list_permissions`].
+    /// Returns `true` when the server accepted the decision.
+    pub async fn reply_permission(
+        &self,
+        request_id: &str,
+        reply: &PermissionReplyRequest,
+    ) -> Result<bool> {
+        let body = serde_json::to_value(reply)?;
+        self.transport
+            .request_json(
+                Method::POST,
+                &self.transport.permission_reply_url(request_id),
+                Some(body),
+            )
+            .await
+    }
+
+    /// Reply to a v2 permission request —
+    /// `POST /api/session/{sessionID}/permission/{requestID}/reply`.
+    ///
+    /// Pair this with `permission.v2.asked` events. Success is HTTP 204.
+    pub async fn reply_permission_v2(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        reply: &PermissionV2ReplyParams,
+    ) -> Result<()> {
+        let body = serde_json::to_value(reply)?;
+        self.transport
+            .request_unit(
+                Method::POST,
+                &self
+                    .transport
+                    .permission_v2_reply_url(session_id, request_id),
+                Some(body),
+            )
+            .await
+    }
+
+    /// List pending question requests — `GET /question`.
+    pub async fn list_questions(&self) -> Result<Vec<QuestionRequest>> {
+        self.transport
+            .request_json(Method::GET, &self.transport.questions_url(), None)
+            .await
+    }
+
+    /// Answer a question request — `POST /question/{requestID}/reply`.
+    pub async fn reply_question(
+        &self,
+        request_id: &str,
+        reply: &QuestionReplyParams,
+    ) -> Result<bool> {
+        let body = serde_json::to_value(reply)?;
+        self.transport
+            .request_json(
+                Method::POST,
+                &self.transport.question_reply_url(request_id),
+                Some(body),
+            )
+            .await
+    }
+
+    /// Reject a question request — `POST /question/{requestID}/reject`.
+    pub async fn reject_question(&self, request_id: &str) -> Result<bool> {
+        self.transport
+            .request_json(
+                Method::POST,
+                &self.transport.question_reject_url(request_id),
+                None,
+            )
+            .await
+    }
+
+    /// Answer a v2 question request —
+    /// `POST /api/session/{sessionID}/question/{requestID}/reply`.
+    pub async fn reply_question_v2(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        reply: &QuestionV2Reply,
+    ) -> Result<()> {
+        let body = serde_json::to_value(reply)?;
+        self.transport
+            .request_unit(
+                Method::POST,
+                &self.transport.question_v2_reply_url(session_id, request_id),
+                Some(body),
+            )
+            .await
+    }
+
+    /// Reject a v2 question request —
+    /// `POST /api/session/{sessionID}/question/{requestID}/reject`.
+    pub async fn reject_question_v2(&self, session_id: &str, request_id: &str) -> Result<()> {
+        self.transport
+            .request_unit(
+                Method::POST,
+                &self
+                    .transport
+                    .question_v2_reject_url(session_id, request_id),
+                None,
             )
             .await
     }
@@ -367,6 +503,197 @@ impl OpencodeClientBuilder {
         let transport =
             HttpTransport::new(client, self.base_url, self.timeout, self.auth, self.scope);
         Ok(OpencodeClient { transport })
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use crate::protocol_generated::types::{PermissionV2Reply, QuestionV2Answer};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::task::JoinHandle;
+
+    async fn mock_client(
+        status: &str,
+        response_body: &str,
+    ) -> (OpencodeClient, JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind mock server");
+        let address = listener.local_addr().expect("mock server address");
+        let status = status.to_string();
+        let response_body = response_body.to_string();
+        let request = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept request");
+            let mut bytes = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            let header_end = loop {
+                let read = socket.read(&mut buffer).await.expect("read request");
+                assert!(read > 0, "request closed before headers completed");
+                bytes.extend_from_slice(&buffer[..read]);
+                if let Some(index) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break index + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&bytes[..header_end]);
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().expect("content length"))
+                })
+                .unwrap_or(0);
+            while bytes.len() < header_end + content_length {
+                let read = socket.read(&mut buffer).await.expect("read request body");
+                assert!(read > 0, "request closed before body completed");
+                bytes.extend_from_slice(&buffer[..read]);
+            }
+
+            let response = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response_body}",
+                response_body.len()
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+            String::from_utf8(bytes).expect("request is utf-8")
+        });
+        let client = OpencodeClient::builder()
+            .base_url(format!("http://{address}"))
+            .build()
+            .expect("build client");
+        (client, request)
+    }
+
+    fn body(request: &str) -> Value {
+        serde_json::from_str(
+            request
+                .split_once("\r\n\r\n")
+                .expect("request has header terminator")
+                .1,
+        )
+        .expect("request body is json")
+    }
+
+    #[tokio::test]
+    async fn fork_at_message_sends_typed_body() {
+        let session_json = include_str!("../test_cases/rest/session_create.json");
+        let (client, request) = mock_client("200 OK", session_json).await;
+
+        let fork = client
+            .fork_session_at("ses/source", "msg/cut point")
+            .await
+            .expect("fork succeeds");
+        assert!(fork.id.starts_with("ses_"));
+
+        let request = request.await.expect("capture request");
+        assert!(request.starts_with("POST /session/ses%2Fsource/fork HTTP/1.1\r\n"));
+        assert_eq!(
+            body(&request),
+            serde_json::json!({"messageID": "msg/cut point"})
+        );
+    }
+
+    #[tokio::test]
+    async fn primary_permission_and_question_replies_send_typed_bodies() {
+        let (client, request) = mock_client("200 OK", "true").await;
+        assert!(client
+            .reply_permission(
+                "per/one",
+                &PermissionReplyRequest {
+                    message: Some("approved by user".into()),
+                    reply: PermissionV2Reply::Once,
+                },
+            )
+            .await
+            .expect("permission reply succeeds"));
+        let request = request.await.expect("capture permission request");
+        assert!(request.starts_with("POST /permission/per%2Fone/reply HTTP/1.1\r\n"));
+        assert_eq!(
+            body(&request),
+            serde_json::json!({"message": "approved by user", "reply": "once"})
+        );
+
+        let (client, request) = mock_client("200 OK", "true").await;
+        assert!(client
+            .reply_question(
+                "que/one",
+                &QuestionReplyParams {
+                    answers: vec![vec!["yes".into()]],
+                },
+            )
+            .await
+            .expect("question reply succeeds"));
+        let request = request.await.expect("capture question request");
+        assert!(request.starts_with("POST /question/que%2Fone/reply HTTP/1.1\r\n"));
+        assert_eq!(body(&request), serde_json::json!({"answers": [["yes"]]}));
+    }
+
+    #[tokio::test]
+    async fn v2_reply_methods_accept_no_content() {
+        let (client, request) = mock_client("204 No Content", "").await;
+        client
+            .reply_permission_v2(
+                "ses/one",
+                "per/one",
+                &PermissionV2ReplyParams {
+                    message: None,
+                    reply: PermissionV2Reply::Always,
+                },
+            )
+            .await
+            .expect("v2 permission reply succeeds");
+        let request = request.await.expect("capture v2 permission request");
+        assert!(request
+            .starts_with("POST /api/session/ses%2Fone/permission/per%2Fone/reply HTTP/1.1\r\n"));
+        assert_eq!(body(&request), serde_json::json!({"reply": "always"}));
+
+        let (client, request) = mock_client("204 No Content", "").await;
+        client
+            .reply_question_v2(
+                "ses/one",
+                "que/one",
+                &QuestionV2Reply {
+                    answers: vec![QuestionV2Answer::from(["choice".to_string()])],
+                },
+            )
+            .await
+            .expect("v2 question reply succeeds");
+        let request = request.await.expect("capture v2 question request");
+        assert!(request
+            .starts_with("POST /api/session/ses%2Fone/question/que%2Fone/reply HTTP/1.1\r\n"));
+        assert_eq!(body(&request), serde_json::json!({"answers": [["choice"]]}));
+    }
+
+    #[tokio::test]
+    async fn question_reject_methods_use_their_generation_success_types() {
+        let (client, request) = mock_client("200 OK", "true").await;
+        assert!(client
+            .reject_question("que/one")
+            .await
+            .expect("primary question rejection succeeds"));
+        let request = request.await.expect("capture primary rejection");
+        assert!(request.starts_with("POST /question/que%2Fone/reject HTTP/1.1\r\n"));
+        assert!(
+            request.ends_with("\r\n\r\n"),
+            "rejection should have no body"
+        );
+
+        let (client, request) = mock_client("204 No Content", "").await;
+        client
+            .reject_question_v2("ses/one", "que/one")
+            .await
+            .expect("v2 question rejection succeeds");
+        let request = request.await.expect("capture v2 rejection");
+        assert!(request
+            .starts_with("POST /api/session/ses%2Fone/question/que%2Fone/reject HTTP/1.1\r\n"));
+        assert!(
+            request.ends_with("\r\n\r\n"),
+            "rejection should have no body"
+        );
     }
 }
 

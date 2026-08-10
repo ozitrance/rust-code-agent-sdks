@@ -73,15 +73,17 @@ opencode exposes a REST + SSE surface. The conversation lifecycle:
 2. **Subscribe** — open the `GET /event` SSE stream.
 3. **Prompt** — `POST /session/{sessionID}/prompt_async` returns immediately;
    the agent's work is observed on the SSE stream.
-4. **Handle permissions** — a permission request arrives on the stream; the
-   reply is a *separate* REST call to
-   `POST /session/{sessionID}/permissions/{permissionID}`. Correlating a
-   request to its reply is the consumer's job — this crate keeps the pending
-   permission surface explicit rather than hiding it behind a callback.
+4. **Handle permissions and questions** — requests arrive on the stream; list
+   pending requests with `GET /permission` or `GET /question`, then answer via
+   the corresponding typed reply/reject method. Correlating a request to its
+   reply is the consumer's job — this crate keeps the pending request surface
+   explicit rather than hiding it behind callbacks.
 5. **Reconcile** — SSE is best-effort and must not be trusted alone. Poll
    `GET /session/{sessionID}/message` to reconcile the authoritative message
    state against what the stream delivered.
 6. **Abort** — `POST /session/{sessionID}/abort` cancels in-flight work.
+7. **Fork** — copy the complete session or cut at a specific `messageID` via
+   `POST /session/{sessionID}/fork`.
 
 Authentication is HTTP Basic when `OPENCODE_SERVER_PASSWORD` is set; the
 username defaults to `"opencode"`.
@@ -131,9 +133,9 @@ async fn main() -> opencode_codes::Result<()> {
             StreamEvent::Connected => {
                 let _messages = client.list_messages(&session.id).await?;
             }
-            // Observe message parts / tool activity. On a permission request,
-            // reply via `client.respond_permission(..)`, then reconcile with a
-            // poll of `client.list_messages(&session.id)`.
+            // Observe message parts / tool activity. On a permission or
+            // question request, use the typed reply/reject methods, then
+            // reconcile with a poll of `client.list_messages(&session.id)`.
             StreamEvent::Event(_event) => {}
             StreamEvent::Unknown(_raw) => {}
             // `StreamEvent` is `#[non_exhaustive]`; a wildcard keeps downstream

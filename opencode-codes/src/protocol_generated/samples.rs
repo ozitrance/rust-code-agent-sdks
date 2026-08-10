@@ -2,13 +2,17 @@
 
 use serde_json::{json, Value};
 
-/// Minimal valid JSON samples for the primary types of the six hand-wrapped
-/// endpoints, keyed by generated Rust type name. For round-trip tests.
+/// Minimal valid JSON samples for the primary hand-wrapped endpoint types,
+/// keyed by generated Rust type name. For round-trip tests.
 pub fn endpoint_samples() -> Vec<(&'static str, Value)> {
     vec![
         ("SessionCreateParams", json!({})),
         ("PromptAsyncParams", json!({"parts": []})),
+        ("SessionForkParams", json!({})),
         ("PermissionReplyParams", json!({"response": "once"})),
+        ("PermissionReplyRequest", json!({"reply": "once"})),
+        ("PermissionV2ReplyParams", json!({"reply": "once"})),
+        ("QuestionReplyParams", json!({"answers": []})),
         (
             "Session",
             json!({"id": "x", "slug": "x", "projectID": "x", "directory": "x", "title": "x", "version": "x", "time": {"created": 0, "updated": 0}}),

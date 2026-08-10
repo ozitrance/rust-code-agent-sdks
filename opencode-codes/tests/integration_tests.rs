@@ -26,8 +26,8 @@ use std::time::Duration;
 
 use opencode_codes::client_async::OpencodeClient;
 use opencode_codes::protocol_generated::types::{
-    Part, PermissionReplyParams, PromptAsyncParams, PromptAsyncParamsPartsItem,
-    SessionCreateParams, TextPartInput,
+    Part, PermissionReplyRequest, PermissionV2Reply, PromptAsyncParams, PromptAsyncParamsPartsItem,
+    QuestionReplyParams, SessionCreateParams, TextPartInput,
 };
 
 /// Base URL of the server under test. Defaults to the local instance the
@@ -116,6 +116,15 @@ async fn create_list_abort_loop() {
 
     // Abort answers with a boolean even when nothing was running.
     let _aborted: bool = client.abort(&session.id).await.expect("abort");
+
+    let _pending_permissions = client
+        .list_permissions()
+        .await
+        .expect("list pending permissions");
+    let _pending_questions = client
+        .list_questions()
+        .await
+        .expect("list pending questions");
 }
 
 /// Fork a session — the fork must be a NEW `ses…` handle distinct from the
@@ -195,17 +204,12 @@ async fn prompt_then_reconcile_user_message() {
 async fn unknown_permission_reply_is_404() {
     let client = client();
 
-    let session = client
-        .create_session(&create_params("opencode-codes permission probe"))
-        .await
-        .expect("create session");
-
     let err = client
-        .respond_permission(
-            &session.id,
+        .reply_permission(
             "per_does_not_exist_00000000000000",
-            &PermissionReplyParams {
-                response: "reject".into(),
+            &PermissionReplyRequest {
+                message: None,
+                reply: PermissionV2Reply::Reject,
             },
         )
         .await
@@ -214,6 +218,25 @@ async fn unknown_permission_reply_is_404() {
     match err {
         opencode_codes::Error::Http { status, .. } => {
             assert_eq!(status, 404, "expected 404 for unknown permission id")
+        }
+        other => panic!("expected HTTP 404, got {other:?}"),
+    }
+}
+
+/// A reply addressed to an unknown question id must surface as HTTP 404.
+#[tokio::test]
+async fn unknown_question_reply_is_404() {
+    let err = client()
+        .reply_question(
+            "que_does_not_exist_00000000000000",
+            &QuestionReplyParams { answers: vec![] },
+        )
+        .await
+        .expect_err("stale question id must fail");
+
+    match err {
+        opencode_codes::Error::Http { status, .. } => {
+            assert_eq!(status, 404, "expected 404 for unknown question id")
         }
         other => panic!("expected HTTP 404, got {other:?}"),
     }
