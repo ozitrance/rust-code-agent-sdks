@@ -40,7 +40,7 @@ pub async fn run_suite(reporter: Reporter) {
             "spawn `opencode serve` and reach it over HTTP",
         )
         .await;
-    let server = match opencode_codes::server::ManagedServer::builder()
+    let mut server = match opencode_codes::server::ManagedServer::builder()
         .startup_timeout(Duration::from_secs(30))
         .spawn()
         .await
@@ -51,7 +51,7 @@ pub async fn run_suite(reporter: Reporter) {
                     "managed_server",
                     started,
                     CheckStatus::Pass,
-                    s.url().to_string(),
+                    format!("{} (pid {:?})", s.url(), s.pid()),
                 )
                 .await;
             s
@@ -85,22 +85,43 @@ pub async fn run_suite(reporter: Reporter) {
 
     session_lifecycle(&reporter, &client).await;
     fork_session(&reporter, &client).await;
+    interaction_lists(&reporter, &client).await;
     event_stream(&reporter, &client).await;
 
     let started = reporter
         .start("server_shutdown", "managed server stops cleanly")
         .await;
-    match server.stop().await {
-        Ok(()) => {
-            reporter
-                .finish(
-                    "server_shutdown",
-                    started,
-                    CheckStatus::Pass,
-                    "stopped".into(),
-                )
-                .await;
-        }
+    match server.shutdown().await {
+        Ok(status) => match server.wait_for_exit().await {
+            Ok(cached) if cached == status && server.pid().is_none() => {
+                reporter
+                    .finish(
+                        "server_shutdown",
+                        started,
+                        CheckStatus::Pass,
+                        format!("stopped with {status}; cached wait matched"),
+                    )
+                    .await;
+            }
+            Ok(cached) => {
+                reporter
+                    .finish(
+                        "server_shutdown",
+                        started,
+                        CheckStatus::Fail,
+                        format!(
+                            "cached exit mismatch: shutdown={status}, wait={cached}, pid={:?}",
+                            server.pid()
+                        ),
+                    )
+                    .await;
+            }
+            Err(e) => {
+                reporter
+                    .finish("server_shutdown", started, CheckStatus::Fail, e.to_string())
+                    .await;
+            }
+        },
         Err(e) => {
             reporter
                 .finish("server_shutdown", started, CheckStatus::Fail, e.to_string())
@@ -153,7 +174,7 @@ async fn session_lifecycle(reporter: &Reporter, client: &OpencodeClient) {
     finish_timed(reporter, "session_lifecycle", started, 60, fut).await;
 }
 
-/// Forking returns a NEW session id tied to the same server.
+/// The fork endpoint returns a NEW session id tied to the same server.
 async fn fork_session(reporter: &Reporter, client: &OpencodeClient) {
     let started = reporter
         .start("fork_session", "fork returns a distinct new session")
@@ -164,10 +185,7 @@ async fn fork_session(reporter: &Reporter, client: &OpencodeClient) {
             .await
             .map_err(|e| e.to_string())?;
         let fork = client
-            .create_session(&SessionCreateParams {
-                parent_id: Some(source.id.clone()),
-                ..params("wirecheck fork")
-            })
+            .fork_session(&source.id)
             .await
             .map_err(|e| e.to_string())?;
         if fork.id == source.id {
@@ -176,6 +194,26 @@ async fn fork_session(reporter: &Reporter, client: &OpencodeClient) {
         Ok(format!("{} → {}", source.id, fork.id))
     };
     finish_timed(reporter, "fork_session", started, 60, fut).await;
+}
+
+/// The current pending-interaction collection routes both decode successfully.
+async fn interaction_lists(reporter: &Reporter, client: &OpencodeClient) {
+    let started = reporter
+        .start(
+            "interaction_lists",
+            "list pending permissions and questions",
+        )
+        .await;
+    let fut = async {
+        let permissions = client.list_permissions().await.map_err(|e| e.to_string())?;
+        let questions = client.list_questions().await.map_err(|e| e.to_string())?;
+        Ok(format!(
+            "decoded {} permission(s), {} question(s)",
+            permissions.len(),
+            questions.len()
+        ))
+    };
+    finish_timed(reporter, "interaction_lists", started, 60, fut).await;
 }
 
 /// The SSE event stream connects and emits at least one well-formed frame.

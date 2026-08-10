@@ -1,10 +1,11 @@
 //! Managed launcher for the local `opencode serve` process.
 //!
-//! [`ManagedServer`] spawns `opencode serve --hostname <host> --port <n>` on a
-//! free port (chosen with [`portpicker`] unless overridden), waits until the
-//! HTTP surface answers `GET /global/health`, exposes the bound base URL via
-//! [`ManagedServer::url`], exposes PID/wait/shutdown lifecycle controls, and
-//! tears the process down on drop.
+//! [`ManagedServer`] spawns `opencode serve --hostname <host> --port <n>` on an
+//! automatically selected port ([`portpicker`] unless overridden; WSL avoids a
+//! guest-side bind probe that can conflict with a Windows opencode shim), waits
+//! until the HTTP surface answers `GET /global/health`, exposes the bound base
+//! URL via [`ManagedServer::url`], exposes PID/wait/shutdown lifecycle controls,
+//! and tears the process down on drop.
 //!
 //! # Orphan cleanup
 //!
@@ -51,6 +52,25 @@ const SIGTERM: i32 = 15;
 #[cfg(unix)]
 const SIGKILL: i32 = 9;
 
+/// Windows' default dynamic TCP range starts at 49152. WSL may resolve a
+/// globally-installed npm shim to a Windows `opencode.exe`. Probing a candidate
+/// by binding it in the guest can make WSL's localhost forwarder temporarily
+/// claim the same host port, causing the immediately-launched Windows process
+/// to fail with `ServeError`. Select an unprobed candidate from a high,
+/// non-ephemeral range and let the server bind be the definitive check.
+const WSL_WINDOWS_PORT_START: u32 = 30_000;
+const WSL_WINDOWS_PORT_END: u32 = 49_151;
+
+fn pick_automatic_port() -> Option<u16> {
+    if std::env::var_os("WSL_INTEROP").is_some() {
+        let span = WSL_WINDOWS_PORT_END - WSL_WINDOWS_PORT_START + 1;
+        let candidate = WSL_WINDOWS_PORT_START + (std::process::id() % span);
+        return u16::try_from(candidate).ok();
+    }
+
+    portpicker::pick_unused_port()
+}
+
 /// Send `sig` to the entire process group identified by `pgid`.
 ///
 /// Signalling the negated PGID targets every process in the group created via
@@ -75,7 +95,7 @@ fn signal_process_group(pgid: i32, sig: i32) {
 ///
 /// Obtain one via [`ManagedServer::builder`]. All fields are optional; the
 /// defaults launch `opencode` from `PATH`, bind `127.0.0.1` on a
-/// portpicker-selected port, and wait up to ten seconds for health.
+/// automatically selected port, and wait up to ten seconds for health.
 #[derive(Debug, Clone)]
 pub struct ManagedServerBuilder {
     binary: PathBuf,
@@ -126,9 +146,10 @@ impl ManagedServerBuilder {
 
     /// Pin the listen port passed to `--port`.
     ///
-    /// When unset, a free port is chosen with [`portpicker`]. The port actually
-    /// bound is read back from the server's stdout, so pinning is only needed
-    /// when a caller must know the port in advance.
+    /// When unset, a free port is chosen with [`portpicker`]. Under WSL, an
+    /// unprobed candidate is used instead so a Windows npm shim can bind it.
+    /// The port actually bound is read back from the server's stdout, so
+    /// pinning is only needed when a caller must know the port in advance.
     #[must_use]
     pub fn port(mut self, port: u16) -> Self {
         self.port = Some(port);
@@ -217,7 +238,7 @@ impl ManagedServer {
     pub async fn spawn(builder: ManagedServerBuilder) -> Result<Self> {
         let port = match builder.port {
             Some(p) => p,
-            None => portpicker::pick_unused_port()
+            None => pick_automatic_port()
                 .ok_or_else(|| Error::Server("no free TCP port available".to_string()))?,
         };
 
@@ -332,13 +353,13 @@ impl ManagedServer {
                     }
                 }
                 Ok(Ok(None)) => {
-                    return Err(Error::Server(
-                        "opencode serve exited before reporting a listening address".to_string(),
-                    ));
+                    return Err(Error::Server(format!(
+                        "opencode serve on {hostname}:{port} exited before reporting a listening address"
+                    )));
                 }
                 Ok(Err(e)) => {
                     return Err(Error::Server(format!(
-                        "error reading opencode serve stdout: {e}"
+                        "error reading opencode serve stdout for {hostname}:{port}: {e}"
                     )));
                 }
                 // Per-slice timeout: loop and re-check the overall deadline.

@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Live 1.18.15 REST/SSE fixtures covering tool state transitions, permission
   and question request/reply events, message reconciliation, and idle
   completion, with lossless generated-type round-trip tests.
+- The live wirecheck now calls the real fork endpoint, decodes both pending
+  interaction collections, and verifies PID clearing plus cached shutdown
+  status on the managed server.
+- Managed servers launched under WSL avoid guest-side bind probes that can
+  temporarily reserve the same host port, allowing a Windows npm-shim
+  `opencode.exe` to start without a false `ServeError`.
 
 ## [1.18.15] - 2026-08-10
 
